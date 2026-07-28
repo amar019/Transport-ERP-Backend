@@ -80,6 +80,19 @@ const customerSchema = new mongoose.Schema(
             trim: true,
         },
 
+        // Opening Balance
+        openingBalance: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+
+        openingBalanceType: {
+            type: String,
+            enum: ["RECEIVABLE", "PAYABLE"],
+            default: "CUSTOMER_OWES_US",
+        },
+
         // Additional Information
         notes: {
             type: String,

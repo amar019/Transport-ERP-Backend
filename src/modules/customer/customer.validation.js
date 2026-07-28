@@ -30,6 +30,17 @@ export const createCustomerValidation = [
         .isNumeric()
         .withMessage("Please enter a valid 6-digit pincode"),
 
+
+    body("openingBalance")
+        .optional()
+        .isFloat({ min: 0 })
+        .withMessage("Opening balance must be a valid positive amount"),
+
+    body("openingBalanceType")
+        .optional()
+        .isIn(["RECEIVABLE", "PAYABLE"])
+        .withMessage("Opening balance type must be RECEIVABLE or PAYABLE"),
+
     body("status")
         .optional()
         .isIn(["ACTIVE", "INACTIVE"])
@@ -70,6 +81,16 @@ export const updateCustomerValidation = [
         .isLength({ min: 6, max: 6 })
         .isNumeric()
         .withMessage("Please enter a valid 6-digit pincode"),
+
+    body("openingBalance")
+        .optional()
+        .isFloat({ min: 0 })
+        .withMessage("Opening balance must be a valid positive amount"),
+
+    body("openingBalanceType")
+        .optional()
+        .isIn(["RECEIVABLE", "PAYABLE"])
+        .withMessage("Opening balance type must be RECEIVABLE or PAYABLE"),
 
     body("status")
         .optional()
