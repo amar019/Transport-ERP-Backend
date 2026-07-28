@@ -11,7 +11,6 @@ const validate = (req, res, next) => {
             errors.array()
         );
     }
-
     next();
 };
 
