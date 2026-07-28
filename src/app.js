@@ -2,26 +2,42 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import userRoute from "./modules/user/user.routes.js"
+import customerRoute from './modules/customer/customer.routes.js';
 import { swaggerUi, swaggerSpec } from "./docs/swagger.js";
 
 const app = express();
 
 // ── Middleware ──────────────────────────────────────────
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim())
+  : ['http://localhost:5173', 'https://transport-erp-frontend.vercel.app'];
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, or Postman)
+    if (!origin) return callback(null, true);
+
+    const isAllowed =
+      allowedOrigins.includes('*') ||
+      allowedOrigins.includes(origin) ||
+      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
+    if (isAllowed) {
+      return callback(null, true);
+    }
+
+    return callback(null, false);
+  },
   credentials: true,
 }));
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// // ── Health check ────────────────────────────────────────
-// app.get('/', (req, res) => {
-//   res.json({ message: 'Labour Hire API is running' });
-// });
 
 // ── Routes ──────────────────────────────────────────────
 app.use("/api/users", userRoute);
+app.use("/api/customers", customerRoute);
 
 // Swagger
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
