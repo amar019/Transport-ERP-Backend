@@ -90,7 +90,7 @@ const customerSchema = new mongoose.Schema(
         openingBalanceType: {
             type: String,
             enum: ["RECEIVABLE", "PAYABLE"],
-            default: "CUSTOMER_OWES_US",
+            default: "RECEIVABLE",
         },
 
         // Additional Information

@@ -3,6 +3,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import userRoute from "./modules/user/user.routes.js"
 import customerRoute from './modules/customer/customer.routes.js';
+import bookingRoute from "./modules/Booking/booking.routes.js";
 import { swaggerUi, swaggerSpec } from "./docs/swagger.js";
 
 const app = express();
@@ -38,7 +39,7 @@ app.use(express.urlencoded({ extended: true }));
 // ── Routes ──────────────────────────────────────────────
 app.use("/api/users", userRoute);
 app.use("/api/customers", customerRoute);
-
+app.use("/api/bookings", bookingRoute);
 // Swagger
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
