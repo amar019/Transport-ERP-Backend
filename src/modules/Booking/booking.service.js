@@ -2,6 +2,7 @@ import Booking from "./booking.model.js";
 import ApiError from "../../utils/ApiErrors.js";
 import PDFDocument from "pdfkit";
 import { drawBilty } from "./booking.pdf.js";
+import Customer from "../customer/cutomer.model.js";
 
 /* pdf generate */
 export const generateBookingPdfService = async (bookingId) => {
@@ -84,6 +85,9 @@ export const createBooking = async (bookingData) => {
     const bookingNumber =
         await generateBookingNumber();
 
+    const parcelCharge =
+        Number(bookingData.parcelCharge || 0);
+
     // Calculate total charges
     const crossing =
         Number(bookingData.crossing || 0);
@@ -100,7 +104,17 @@ export const createBooking = async (bookingData) => {
     const otherCharges =
         Number(bookingData.otherCharges || 0);
 
+    console.log("CHARGES BEFORE CALCULATION:", {
+        parcelCharge,
+        crossing,
+        freight,
+        hamali,
+        biltyCharge,
+        otherCharges,
+    });
+
     const totalAmount =
+        parcelCharge +
         crossing +
         freight +
         hamali +
@@ -178,6 +192,10 @@ export const updateBooking = async (
     }
 
     // Update charges if provided
+
+    const parcelCharge =
+        Number(bookingData.parcelCharge || 0);
+
     const crossing =
         bookingData.crossing ??
         booking.crossing;
@@ -200,6 +218,7 @@ export const updateBooking = async (
 
     // Recalculate total
     const totalAmount =
+        Number(parcelCharge) +
         Number(crossing) +
         Number(freight) +
         Number(hamali) +

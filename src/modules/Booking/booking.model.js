@@ -29,6 +29,18 @@ const bookingSchema = new mongoose.Schema(
             required: true,
         },
 
+
+        // Transport Information
+        from: {
+            type: String,
+            trim: true,
+        },
+
+        to: {
+            type: String,
+            trim: true,
+        },
+
         // Delivery Address
         deliveryAddress: {
             type: String,
@@ -46,6 +58,12 @@ const bookingSchema = new mongoose.Schema(
             type: Number,
             default: 1,
             min: 1,
+        },
+
+        parcelCharge: {
+            type: Number,
+            default: 0,
+            min: 0,
         },
 
         // Charges

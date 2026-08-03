@@ -1,6 +1,12 @@
 import { body } from "express-validator";
 
 export const createBookingValidation = [
+    // Booking Information
+    body("bookingDate")
+        .optional()
+        .isISO8601()
+        .withMessage("Please enter a valid booking date"),
+
     // Sender
     body("sender.name")
         .trim()
@@ -8,10 +14,11 @@ export const createBookingValidation = [
         .withMessage("Sender name is required"),
 
     body("sender.mobile")
-        .optional()
+        .optional({ checkFalsy: true })
         .trim()
         .isMobilePhone("any")
         .withMessage("Please enter a valid sender mobile number"),
+
 
     body("sender.address")
         .optional()
@@ -25,7 +32,18 @@ export const createBookingValidation = [
         .isMongoId()
         .withMessage("Invalid customer ID"),
 
-    // Delivery Address
+
+    body("from")
+        .trim()
+        .notEmpty()
+        .withMessage("From location is required"),
+
+    body("to")
+        .trim()
+        .notEmpty()
+        .withMessage("To location is required"),
+
+    // Delivery Information
     body("deliveryAddress")
         .optional()
         .trim(),
@@ -42,53 +60,61 @@ export const createBookingValidation = [
         .withMessage("Quantity must be at least 1"),
 
     // Charges
+    body("parcelCharge")
+        .optional()
+        .isFloat({ min: 0 })
+        .withMessage("Parcel charge must be a valid number"),
+
     body("crossing")
         .optional()
         .isFloat({ min: 0 })
-        .withMessage("Crossing must be a positive number"),
+        .withMessage("Crossing must be a valid number"),
 
     body("freight")
         .optional()
         .isFloat({ min: 0 })
-        .withMessage("Freight must be a positive number"),
+        .withMessage("Freight must be a valid number"),
 
     body("hamali")
         .optional()
         .isFloat({ min: 0 })
-        .withMessage("Hamali must be a positive number"),
+        .withMessage("Hamali must be a valid number"),
 
     body("biltyCharge")
         .optional()
         .isFloat({ min: 0 })
-        .withMessage("Bilty charge must be a positive number"),
+        .withMessage("Bilty charge must be a valid number"),
 
     body("otherCharges")
         .optional()
         .isFloat({ min: 0 })
-        .withMessage("Other charges must be a positive number"),
+        .withMessage("Other charges must be a valid number"),
 
-    // Total
-    body("totalAmount")
-        .notEmpty()
-        .withMessage("Total amount is required")
-        .isFloat({ min: 0 })
-        .withMessage("Total amount must be a positive number"),
+    // Payment Collection Type
+    body("collectionType")
+        .optional()
+        .isIn([
+            "PAID_AT_BOOKING",
+            "TO_PAY",
+        ])
+        .withMessage("Invalid collection type"),
 
-    // Payment
+    // Payment Status
     body("paymentStatus")
         .optional()
-        .isIn(["PAID", "TO_PAY", "PENDING"])
+        .isIn([
+            "PENDING",
+            "PARTIAL",
+            "PAID",
+            "CREDIT",
+        ])
         .withMessage("Invalid payment status"),
 
+    // Paid Amount
     body("paidAmount")
         .optional()
         .isFloat({ min: 0 })
-        .withMessage("Paid amount must be a positive number"),
-
-    body("remainingAmount")
-        .optional()
-        .isFloat({ min: 0 })
-        .withMessage("Remaining amount must be a positive number"),
+        .withMessage("Paid amount must be a valid number"),
 
     // Notes
     body("notes")
