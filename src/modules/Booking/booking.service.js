@@ -3,6 +3,7 @@ import ApiError from "../../utils/ApiErrors.js";
 import PDFDocument from "pdfkit";
 import { drawBilty } from "./booking.pdf.js";
 import Customer from "../customer/cutomer.model.js";
+import { calculatePaymentDetails } from "../../utils/payment.helper.js"
 
 /* pdf generate */
 export const generateBookingPdfService = async (bookingId) => {
@@ -104,14 +105,6 @@ export const createBooking = async (bookingData) => {
     const otherCharges =
         Number(bookingData.otherCharges || 0);
 
-    console.log("CHARGES BEFORE CALCULATION:", {
-        parcelCharge,
-        crossing,
-        freight,
-        hamali,
-        biltyCharge,
-        otherCharges,
-    });
 
     const totalAmount =
         parcelCharge +
@@ -121,13 +114,17 @@ export const createBooking = async (bookingData) => {
         biltyCharge +
         otherCharges;
 
+    const payment = calculatePaymentDetails(
+        bookingData.collectionType,
+        totalAmount
+    );
+
     // Create booking
     const booking = await Booking.create({
         ...bookingData,
         bookingNumber,
         totalAmount,
-        paidAmount: 0,
-        remainingAmount: totalAmount,
+        ...payment,
     });
 
     return booking;
@@ -216,7 +213,7 @@ export const updateBooking = async (
         bookingData.otherCharges ??
         booking.otherCharges;
 
-    // Recalculate total
+    // Recalculate Total Amount
     const totalAmount =
         Number(parcelCharge) +
         Number(crossing) +
@@ -225,17 +222,18 @@ export const updateBooking = async (
         Number(biltyCharge) +
         Number(otherCharges);
 
+    // Calculate Payment Details
+    const payment = calculatePaymentDetails(
+        bookingData.collectionType,
+        totalAmount
+    );
+
+    // Update Booking
     booking.set({
         ...bookingData,
         totalAmount,
+        ...payment,
     });
-
-    // Recalculate remaining amount
-    booking.remainingAmount =
-        Math.max(
-            totalAmount - booking.paidAmount,
-            0
-        );
 
     await booking.save();
 

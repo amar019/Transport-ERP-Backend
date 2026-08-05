@@ -156,6 +156,12 @@ const bookingSchema = new mongoose.Schema(
             type: String,
             trim: true,
         },
+
+        memo: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Memo",
+            default: null,
+        }
     },
     {
         timestamps: true,
