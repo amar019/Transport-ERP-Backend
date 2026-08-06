@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import userRoute from "./modules/user/user.routes.js"
 import customerRoute from './modules/customer/customer.routes.js';
 import bookingRoute from "./modules/Booking/booking.routes.js";
+import memoRoutes from "./modules/memo/memo.routes.js";
 import { swaggerUi, swaggerSpec } from "./docs/swagger.js";
 
 const app = express();
@@ -40,6 +41,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/users", userRoute);
 app.use("/api/customers", customerRoute);
 app.use("/api/bookings", bookingRoute);
+app.use("/api/memos", memoRoutes);
 // Swagger
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
