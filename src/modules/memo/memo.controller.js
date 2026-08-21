@@ -1,15 +1,22 @@
 import asyncHandler from "../../utils/asyncHandler.js";
 import {
-    createMemoService, getAllMemosService, getMemoByIdService,
-    updateMemoService, deleteMemoService, markMemoOnRouteService,
+    createMemoService,
+    getAllMemosService,
+    getMemoByIdService,
+    updateMemoService,
+    deleteMemoService,
+    markMemoOnRouteService,
+    markMemoReceivedService,
     updateMemoCollectionService
 } from "./memo.service.js";
 import ApiResponse from "../../utils/ApiResponse.js";
-import ApiErrors from "../../utils/ApiErrors.js";
 
-
+/**
+ * Create Memo
+ * POST /api/memos
+ */
 const createMemoController = asyncHandler(async (req, res) => {
-    const memo = await createMemoService(req.body);
+    const memo = await createMemoService(req.body, req.branch, req.user);
 
     return res.status(201).json(
         new ApiResponse(
@@ -25,134 +32,117 @@ const createMemoController = asyncHandler(async (req, res) => {
  * GET /api/memos
  */
 const getAllMemosController = asyncHandler(async (req, res) => {
+    const memos = await getAllMemosService(req.branch, req.query);
 
-    const memo = await getAllMemosService();
-
-    return res.status(200).json(new ApiResponse(200, memo, "Memos fetched successfully."));
+    return res.status(200).json(
+        new ApiResponse(200, memos, "Memos fetched successfully.")
+    );
 });
 
-
 /**
- * Get Memo By Id
+ * Get Memo By ID
  * GET /api/memos/:memoId
  */
 const getMemoByIdController = asyncHandler(async (req, res) => {
-
     const { memoId } = req.params;
 
-    const memo = await getMemoByIdService(memoId);
+    const memo = await getMemoByIdService(memoId, req.branch);
 
-    return res.status(200).json({
-        statusCode: 200,
-        data: memo,
-        message: "Memo fetched successfully.",
-        success: true,
-    });
-
+    return res.status(200).json(
+        new ApiResponse(200, memo, "Memo fetched successfully.")
+    );
 });
 
+/**
+ * Update Draft Memo
+ * PATCH /api/memos/:memoId
+ */
 const updateMemoController = asyncHandler(async (req, res) => {
     const { memoId } = req.params;
 
-    const memo = await updateMemoService(memoId, req.body);
+    const memo = await updateMemoService(memoId, req.body, req.branch);
 
-    return res.status(200).json({
-        statusCode: 200,
-        data: memo,
-        message: "Memo updated successfully.",
-        success: true,
-    });
-})
-
+    return res.status(200).json(
+        new ApiResponse(200, memo, "Memo updated successfully.")
+    );
+});
 
 /**
- * Delete Memo
+ * Delete Draft Memo
+ * DELETE /api/memos/:memoId
  */
-const deleteMemoController = asyncHandler(
-    async (req, res) => {
+const deleteMemoController = asyncHandler(async (req, res) => {
+    const { memoId } = req.params;
 
-        const { memoId } = req.params;
+    await deleteMemoService(memoId, req.branch);
 
-        await deleteMemoService(memoId);
-
-        return res.status(200).json(
-            new ApiResponse(
-                200,
-                null,
-                "Memo deleted successfully."
-            )
-        );
-
-    }
-);
-
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            null,
+            "Memo deleted successfully."
+        )
+    );
+});
 
 /**
- * Mark Memo On Route
+ * Mark Memo On Route (Dispatch)
+ * PATCH /api/memos/:memoId/on-route
  */
-const markMemoOnRouteController = asyncHandler(
-    async (req, res) => {
+const markMemoOnRouteController = asyncHandler(async (req, res) => {
+    const { memoId } = req.params;
 
-        const { memoId } = req.params;
+    const memo = await markMemoOnRouteService(memoId, req.branch);
 
-        const memo = await markMemoOnRouteService(memoId);
-
-        return res.status(200).json(
-            new ApiResponse(
-                200,
-                memo,
-                "Memo marked as On Route successfully."
-            )
-        );
-
-    }
-);
-
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            memo,
+            "Memo marked as On Route successfully."
+        )
+    );
+});
 
 /**
  * Mark Memo Received
+ * PATCH /api/memos/:memoId/received
  */
-const markMemoReceivedController = asyncHandler(
-    async (req, res) => {
+const markMemoReceivedController = asyncHandler(async (req, res) => {
+    const { memoId } = req.params;
 
-        const { memoId } = req.params;
+    const memo = await markMemoReceivedService(memoId, req.branch, req.user);
 
-        const memo = await markMemoReceivedService(memoId);
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            memo,
+            "Memo marked as Received successfully."
+        )
+    );
+});
 
-        return res.status(200).json(
-            new ApiResponse(
-                200,
-                memo,
-                "Memo marked as Received successfully."
-            )
-        );
+/**
+ * Record Memo Collection / Settlement
+ * PATCH /api/memos/:memoId/collection
+ */
+const updateMemoCollectionController = asyncHandler(async (req, res) => {
+    const { memoId } = req.params;
+    const { amountReceived } = req.body;
 
-    }
-);
+    const memo = await updateMemoCollectionService(
+        memoId,
+        amountReceived,
+        req.branch
+    );
 
-const updateMemoCollectionController = asyncHandler(
-    async (req, res) => {
-
-        const { memoId } = req.params;
-
-        const { amountReceived } = req.body;
-
-        const memo =
-            await updateMemoCollectionService(
-                memoId,
-                amountReceived
-            );
-
-        return res.status(200).json(
-            new ApiResponse(
-                200,
-                memo,
-                "Memo collection updated successfully."
-            )
-        );
-    }
-);
-
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            memo,
+            "Memo collection updated successfully."
+        )
+    );
+});
 
 export {
     createMemoController,
@@ -164,5 +154,3 @@ export {
     markMemoReceivedController,
     updateMemoCollectionController
 };
-
-

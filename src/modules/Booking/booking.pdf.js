@@ -71,6 +71,10 @@ export const drawBilty = (doc, booking) => {
         .font("Helvetica")
         .text(`Date: ${formatDate(booking.bookingDate)}`);
 
+    const originName = booking.fromBranch?.name || booking.from || "-";
+    const destName = booking.toBranch?.name || booking.to || "-";
+    doc.text(`Route: ${originName} -> ${destName}`);
+
     doc.moveDown(1);
 
     // ==========================================
@@ -118,8 +122,15 @@ export const drawBilty = (doc, booking) => {
         320
     );
 
+    const receiverAddress =
+        booking.deliveryAddress ||
+        booking.customer?.deliveryAddress ||
+        booking.customer?.address ||
+        [booking.customer?.area, booking.customer?.city].filter(Boolean).join(", ") ||
+        "-";
+
     doc.text(
-        `Address: ${booking.deliveryAddress || "-"}`,
+        `Address: ${receiverAddress}`,
         320
     );
 

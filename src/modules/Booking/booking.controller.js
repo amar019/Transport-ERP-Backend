@@ -12,56 +12,44 @@ import {
     deleteBooking
 } from "./booking.service.js";
 
+/**
+ * Generate Single Booking PDF
+ */
+export const generateBookingPdfController = asyncHandler(
+    async (req, res) => {
+        const { id } = req.params;
 
-
-export const generateBookingPdfController =
-    asyncHandler(
-        async (req, res) => {
-            const {
-                pdfBuffer,
-                bookingNumber,
-            } =
-                await generateBookingPdfService(
-                    req.params.id
-                );
-
-            console.log(
-                "PDF Buffer:",
-                pdfBuffer
-            );
-
-            console.log(
-                "PDF Buffer Length:",
-                pdfBuffer.length
-            );
-
-            console.log(
-                "Booking Number:",
-                bookingNumber
-            );
-
-
-            res.setHeader(
-                "Content-Type",
-                "application/pdf"
-            );
-
-            res.setHeader(
-                "Content-Disposition",
-                `inline; filename="Bilty-${bookingNumber}.pdf"`
-            );
-
-            res.status(200).send(
-                Buffer.from(pdfBuffer)
-            );
+        if (!id) {
+            throw new ApiError(400, "Booking ID is required");
         }
-    );
+
+        const {
+            pdfBuffer,
+            bookingNumber,
+        } = await generateBookingPdfService(id, req.branch);
+
+        res.setHeader(
+            "Content-Type",
+            "application/pdf"
+        );
+
+        res.setHeader(
+            "Content-Disposition",
+            `inline; filename="Bilty-${bookingNumber}.pdf"`
+        );
+
+        res.status(200).send(
+            Buffer.from(pdfBuffer)
+        );
+    }
+);
+
 /**
  * Create Booking
  */
 export const createBookingController = asyncHandler(
     async (req, res) => {
-        const booking = await createBooking(req.body);
+        const booking = await createBooking(req.body, req.branch, req.user);
 
         if (!booking) {
             throw new ApiError(
@@ -82,13 +70,12 @@ export const createBookingController = asyncHandler(
     }
 );
 
-
 /**
  * Get All Bookings
  */
 export const getAllBookingsController = asyncHandler(
     async (req, res) => {
-        const bookings = await getAllBookings();
+        const bookings = await getAllBookings(req.branch, req.query);
 
         return res
             .status(200)
@@ -101,7 +88,6 @@ export const getAllBookingsController = asyncHandler(
             );
     }
 );
-
 
 /**
  * Get Booking By ID
@@ -117,8 +103,7 @@ export const getBookingByIdController = asyncHandler(
             );
         }
 
-        const booking =
-            await getBookingById(id);
+        const booking = await getBookingById(id, req.branch);
 
         return res
             .status(200)
@@ -131,7 +116,6 @@ export const getBookingByIdController = asyncHandler(
             );
     }
 );
-
 
 /**
  * Update Booking
@@ -147,11 +131,11 @@ export const updateBookingController = asyncHandler(
             );
         }
 
-        const booking =
-            await updateBooking(
-                id,
-                req.body
-            );
+        const booking = await updateBooking(
+            id,
+            req.body,
+            req.branch
+        );
 
         return res
             .status(200)
@@ -164,7 +148,6 @@ export const updateBookingController = asyncHandler(
             );
     }
 );
-
 
 /**
  * Cancel Booking
@@ -180,8 +163,7 @@ export const cancelBookingController = asyncHandler(
             );
         }
 
-        const booking =
-            await cancelBooking(id);
+        const booking = await cancelBooking(id, req.branch);
 
         return res
             .status(200)
@@ -194,8 +176,6 @@ export const cancelBookingController = asyncHandler(
             );
     }
 );
-
-
 
 /**
  * Delete Booking
@@ -211,7 +191,7 @@ export const deleteBookingController = asyncHandler(
             );
         }
 
-        const booking = await deleteBooking(id);
+        const booking = await deleteBooking(id, req.branch);
 
         return res
             .status(200)

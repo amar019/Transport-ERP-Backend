@@ -29,17 +29,28 @@ const bookingSchema = new mongoose.Schema(
             required: true,
         },
 
-
-        // Transport Information
-        from: {
-            type: String,
-            trim: true,
+        // Branch Information
+        fromBranch: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Branch",
+            required: [true, "Origin branch is required"],
+            index: true,
         },
 
-        to: {
-            type: String,
-            trim: true,
+        toBranch: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Branch",
+            required: [true, "Destination branch is required"],
+            index: true,
         },
+
+        createdBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: [true, "Created by user is required"],
+        },
+
+
 
         // Delivery Address
         deliveryAddress: {
@@ -167,6 +178,12 @@ const bookingSchema = new mongoose.Schema(
         timestamps: true,
     }
 );
+
+// Indexes for fast querying
+bookingSchema.index({ fromBranch: 1, createdAt: -1 });
+bookingSchema.index({ toBranch: 1, createdAt: -1 });
+bookingSchema.index({ status: 1 });
+bookingSchema.index({ memo: 1 });
 
 const Booking = mongoose.model("Booking", bookingSchema);
 

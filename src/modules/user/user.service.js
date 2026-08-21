@@ -1,36 +1,83 @@
 import jwt from "jsonwebtoken";
 import User from "./user.model.js";
 import ApiError from "../../utils/ApiErrors.js";
+import Branch from "../Branch/branch.model.js";
 
 /**
  * Login User
  */
 const loginUser = async (username, password) => {
+
     const user = await User.findOne({
         username: username.toLowerCase(),
-    }).select("+password");
+    })
+        .select("+password")
+        .populate({
+            path: "branch",
+            select: "name type status",
+        });
+
 
     if (!user) {
-        throw new ApiError(401, "Invalid username or password");
+        throw new ApiError(
+            401,
+            "Invalid username or password"
+        );
     }
 
+
+    // Check user account
     if (user.status !== "ACTIVE") {
-        throw new ApiError(403, "Your account is inactive");
+        throw new ApiError(
+            403,
+            "Your account is inactive"
+        );
     }
 
-    const isPasswordCorrect = await user.comparePassword(password);
+
+    // Check branch assigned
+    if (!user.branch) {
+        throw new ApiError(
+            400,
+            "No branch is assigned to this user"
+        );
+    }
+
+
+    // Check branch status
+    if (user.branch.status !== "ACTIVE") {
+        throw new ApiError(
+            403,
+            "Your assigned branch is inactive"
+        );
+    }
+
+
+    // Check password
+    const isPasswordCorrect =
+        await user.comparePassword(password);
+
 
     if (!isPasswordCorrect) {
-        throw new ApiError(401, "Invalid username or password");
+        throw new ApiError(
+            401,
+            "Invalid username or password"
+        );
     }
 
+
+    // Update last login
     user.lastLogin = new Date();
+
     await user.save();
 
+
+    // Create JWT
     const token = jwt.sign(
         {
             id: user._id,
             username: user.username,
+            branchId: user.branch._id,
         },
         process.env.JWT_SECRET,
         {
@@ -38,7 +85,10 @@ const loginUser = async (username, password) => {
         }
     );
 
+
+    // Remove password
     user.password = undefined;
+
 
     return {
         token,
@@ -46,18 +96,30 @@ const loginUser = async (username, password) => {
     };
 };
 
+
 /**
  * Get Current User
  */
 const getCurrentUser = async (userId) => {
-    const user = await User.findById(userId);
+
+    const user = await User.findById(userId)
+        .populate({
+            path: "branch",
+            select: "name type status",
+        });
+
 
     if (!user) {
-        throw new ApiError(404, "User not found");
+        throw new ApiError(
+            404,
+            "User not found"
+        );
     }
+
 
     return user;
 };
+
 
 /**
  * Change Password
@@ -67,17 +129,32 @@ const changePassword = async (
     currentPassword,
     newPassword
 ) => {
-    const user = await User.findById(userId).select("+password");
+
+    const user = await User.findById(userId)
+        .select("+password");
+
 
     if (!user) {
-        throw new ApiError(404, "User not found");
+        throw new ApiError(
+            404,
+            "User not found"
+        );
     }
 
-    const isPasswordCorrect = await user.comparePassword(currentPassword);
+
+    const isPasswordCorrect =
+        await user.comparePassword(
+            currentPassword
+        );
+
 
     if (!isPasswordCorrect) {
-        throw new ApiError(400, "Current password is incorrect");
+        throw new ApiError(
+            400,
+            "Current password is incorrect"
+        );
     }
+
 
     user.password = newPassword;
 
@@ -86,26 +163,22 @@ const changePassword = async (
     return true;
 };
 
-/**
- * Switch Branch
- */
-const switchBranch = async (userId, currentBranch) => {
-    const user = await User.findById(userId);
 
-    if (!user) {
-        throw new ApiError(404, "User not found");
-    }
+/* Logout User
+   */
+const logoutUser = async () => {
 
-    user.currentBranch = currentBranch;
+    // JWT based authentication is stateless.
+    // Logout is mainly handled by removing    // the token from the client.
 
-    await user.save();
-
-    return user;
+    return true;
 };
+
+
 
 export default {
     loginUser,
     getCurrentUser,
     changePassword,
-    switchBranch,
+    logoutUser
 };

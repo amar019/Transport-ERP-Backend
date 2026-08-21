@@ -1,25 +1,41 @@
 import { body } from "express-validator";
 
+/**
+ * Validation for Creating a Memo
+ */
 const createMemoValidation = [
-    body("from")
+    body("toBranch")
         .trim()
         .notEmpty()
-        .withMessage("From is required."),
-
-    body("to")
-        .trim()
-        .notEmpty()
-        .withMessage("To is required."),
+        .withMessage("Destination branch is required.")
+        .isMongoId()
+        .withMessage("Invalid destination branch ID."),
 
     body("bookings")
         .isArray({ min: 1 })
         .withMessage("At least one booking is required."),
+
+    body("bookings.*")
+        .isMongoId()
+        .withMessage("Each booking must be a valid booking ID."),
 
     body("notes")
         .optional()
         .trim(),
 ];
 
+/**
+ * Validation for Updating Memo Collection / Settlement
+ */
+const updateMemoCollectionValidation = [
+    body("amountReceived")
+        .notEmpty()
+        .withMessage("Received amount is required.")
+        .isFloat({ min: 0.01 })
+        .withMessage("Please enter a valid positive received amount."),
+];
+
 export {
     createMemoValidation,
+    updateMemoCollectionValidation,
 };

@@ -1,30 +1,28 @@
 import jwt from "jsonwebtoken";
-import User from "../modules/user/user.model.js";
 import ApiError from "../utils/ApiErrors.js";
 import asyncHandler from "../utils/asyncHandler.js";
 
-const auth = asyncHandler(async (req, res, next) => {
-    // Get token from Authorization header
-    const token = req.header("Authorization")?.replace("Bearer ", "");
+const authMiddleware = asyncHandler(async (req, res, next) => {
+    const authHeader = req.headers.authorization;
 
-    if (!token) {
-        throw new ApiError(401, "Access denied. Token not found.");
+    // Check Authorization header
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        throw new ApiError(401, "Authentication required");
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Extract token
+    const token = authHeader.split(" ")[1];
 
-    // Find user
-    const user = await User.findById(decoded.id);
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (!user) {
-        throw new ApiError(401, "Invalid token.");
+        // Store logged-in user information
+        req.user = decoded;
+
+        next();
+    } catch (error) {
+        throw new ApiError(401, "Invalid or expired token");
     }
-
-    // Attach user to request
-    req.user = user;
-
-    next();
 });
 
-export default auth;
+export default authMiddleware;

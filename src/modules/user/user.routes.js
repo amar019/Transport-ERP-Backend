@@ -1,17 +1,17 @@
 import { Router } from "express";
 
 import {
-    login,
+    loginController,
     logout,
-    getCurrentUser,
-    changePassword,
-    switchBranch,
+    getCurrentUserController,
+    changePasswordController,
+
 } from "./user.controller.js";
 
 import {
     loginValidation,
     changePasswordValidation,
-    switchBranchValidation,
+
 } from "./user.validation.js";
 
 import validate from "../../middleware/validate.middleware.js";
@@ -71,7 +71,7 @@ const router = Router();
  *         description: Invalid username or password.
  */
 // Public Route
-router.post("/login", loginValidation, validate, login);
+router.post("/login", loginValidation, validate, loginController);
 
 
 
@@ -105,7 +105,7 @@ router.post("/logout", auth, logout);
  *       200:
  *         description: Current user details
  */
-router.get("/me", auth, getCurrentUser);
+router.get("/me", auth, getCurrentUserController);
 
 
 /**
@@ -128,30 +128,9 @@ router.patch(
     auth,
     changePasswordValidation,
     validate,
-    changePassword
+    changePasswordController
 );
 
-/**
- * @swagger
- * /users/switch-branch:
- *   patch:
- *     summary: Switch Branch
- *     tags:
- *       - Authentication
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *     responses:
- *       200:
- *         description: Branch switched successfully
- */
-router.patch(
-    "/switch-branch",
-    auth,
-    switchBranchValidation,
-    validate,
-    switchBranch
-);
+
 
 export default router;

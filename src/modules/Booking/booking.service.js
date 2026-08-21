@@ -3,25 +3,41 @@ import ApiError from "../../utils/ApiErrors.js";
 import PDFDocument from "pdfkit";
 import { drawBilty } from "./booking.pdf.js";
 import Customer from "../customer/cutomer.model.js";
-import { calculatePaymentDetails } from "../../utils/payment.helper.js"
+import Branch from "../Branch/branch.model.js";
+import { calculatePaymentDetails } from "../../utils/payment.helper.js";
 
-/* pdf generate */
-export const generateBookingPdfService = async (bookingId) => {
+/**
+ * Generate PDF Service
+ */
+export const generateBookingPdfService = async (bookingId, branch) => {
     // 1. Find booking
-    const booking = await Booking.findById(bookingId).populate(
-        "customer",
-        "customerCode shopName ownerName mobile email address area city district state pincode"
-    );
+    const booking = await Booking.findById(bookingId)
+        .populate(
+            "customer",
+            "customerCode shopName ownerName mobile email address area city district state pincode"
+        )
+        .populate("fromBranch", "name type status")
+        .populate("toBranch", "name type status")
+        .populate("createdBy", "name username");
 
-    // 2. Check booking
+    // 2. Check booking exists
     if (!booking) {
         throw new ApiError(404, "Booking not found");
     }
 
-    // 3. Convert MongoDB document to plain object
+    // 3. Cross-branch access check
+    const fromBranchId = booking.fromBranch?._id?.toString() || booking.fromBranch?.toString();
+    const toBranchId = booking.toBranch?._id?.toString() || booking.toBranch?.toString();
+    const currentBranchId = branch._id.toString();
+
+    if (fromBranchId !== currentBranchId && toBranchId !== currentBranchId) {
+        throw new ApiError(403, "You do not have access to generate PDF for this booking");
+    }
+
+    // 4. Convert MongoDB document to plain object
     const bookingData = booking.toObject();
 
-    // 4. Generate PDF buffer using pdfkit
+    // 5. Generate PDF buffer using pdfkit
     return new Promise((resolve, reject) => {
         const doc = new PDFDocument({ size: "A4", margin: 40 });
         const buffers = [];
@@ -59,52 +75,43 @@ const generateBookingNumber = async () => {
         10
     );
 
-    const nextNumber = lastNumber + 1;
+    const nextNumber = isNaN(lastNumber) ? 1 : lastNumber + 1;
 
     return `BK-${String(nextNumber).padStart(4, "0")}`;
 };
 
-
 /**
  * Create Booking
+ * - Origin branch (fromBranch) is strictly set from authenticated user's branch
+ * - Creator (createdBy) is strictly set from authenticated user
  */
-export const createBooking = async (bookingData) => {
-
-    // Check customer exists
-    const customer = await Customer.findById(
-        bookingData.customer
-    );
-
+export const createBooking = async (bookingData, branch, user) => {
+    // 1. Validate Customer exists
+    const customer = await Customer.findById(bookingData.customer);
     if (!customer) {
-        throw new ApiError(
-            404,
-            "Customer not found"
-        );
+        throw new ApiError(404, "Customer not found");
     }
 
-    // Generate booking number
-    const bookingNumber =
-        await generateBookingNumber();
+    // 2. Validate Destination Branch (toBranch) exists and is active
+    const toBranch = await Branch.findById(bookingData.toBranch);
+    if (!toBranch) {
+        throw new ApiError(404, "Destination branch not found");
+    }
 
-    const parcelCharge =
-        Number(bookingData.parcelCharge || 0);
+    if (toBranch.status !== "ACTIVE") {
+        throw new ApiError(400, "Destination branch is inactive");
+    }
 
-    // Calculate total charges
-    const crossing =
-        Number(bookingData.crossing || 0);
+    // 3. Generate booking number
+    const bookingNumber = await generateBookingNumber();
 
-    const freight =
-        Number(bookingData.freight || 0);
-
-    const hamali =
-        Number(bookingData.hamali || 0);
-
-    const biltyCharge =
-        Number(bookingData.biltyCharge || 0);
-
-    const otherCharges =
-        Number(bookingData.otherCharges || 0);
-
+    // 4. Calculate charges
+    const parcelCharge = Number(bookingData.parcelCharge || 0);
+    const crossing = Number(bookingData.crossing || 0);
+    const freight = Number(bookingData.freight || 0);
+    const hamali = Number(bookingData.hamali || 0);
+    const biltyCharge = Number(bookingData.biltyCharge || 0);
+    const otherCharges = Number(bookingData.otherCharges || 0);
 
     const totalAmount =
         parcelCharge +
@@ -119,116 +126,194 @@ export const createBooking = async (bookingData) => {
         totalAmount
     );
 
-    // Create booking
+    // 5. Create booking with enforced origin branch and createdBy
     const booking = await Booking.create({
         ...bookingData,
+        fromBranch: branch._id,
+        toBranch: toBranch._id,
+        createdBy: user._id || user.id,
         bookingNumber,
         totalAmount,
         ...payment,
     });
 
-    return booking;
+    return await Booking.findById(booking._id)
+        .populate("customer", "customerCode shopName ownerName mobile email address area city district state pincode deliveryAddress")
+        .populate("fromBranch", "name type status")
+        .populate("toBranch", "name type status")
+        .populate("createdBy", "name username");
 };
 
-
 /**
- * Get All Bookings
+ * Get All Bookings (Role- and Branch-scoped)
+ * - BOOKING branch: returns bookings where fromBranch = branch._id
+ * - DELIVERY branch: returns bookings where toBranch = branch._id
  */
-export const getAllBookings = async () => {
+export const getAllBookings = async (branch, queryParams = {}) => {
+    const filter = {};
 
-    const bookings = await Booking.find()
+    // Branch scoping
+    if (branch.type === "BOOKING") {
+        filter.fromBranch = branch._id;
+    } else if (branch.type === "DELIVERY") {
+        filter.toBranch = branch._id;
+    }
+
+    // Optional query filters
+    if (queryParams.status) {
+        filter.status = queryParams.status;
+    }
+
+    if (queryParams.paymentStatus) {
+        filter.paymentStatus = queryParams.paymentStatus;
+    }
+
+    if (queryParams.collectionType) {
+        filter.collectionType = queryParams.collectionType;
+    }
+
+    if (queryParams.customer) {
+        filter.customer = queryParams.customer;
+    }
+
+    if (queryParams.search) {
+        filter.$or = [
+            { bookingNumber: { $regex: queryParams.search, $options: "i" } },
+            { "sender.name": { $regex: queryParams.search, $options: "i" } },
+            { itemName: { $regex: queryParams.search, $options: "i" } },
+        ];
+    }
+
+    const bookings = await Booking.find(filter)
         .populate(
             "customer",
-            "customerCode shopName ownerName mobile"
+            "customerCode shopName ownerName mobile email address area city district state pincode deliveryAddress"
         )
+        .populate("fromBranch", "name type status")
+        .populate("toBranch", "name type status")
+        .populate("createdBy", "name username")
+        .populate("memo", "memoNumber status memoDate")
         .sort({ createdAt: -1 });
 
     return bookings;
 };
 
-
 /**
  * Get Booking By ID
+ * - Validates that the booking is in scope for the user's branch
  */
-export const getBookingById = async (bookingId) => {
-
-    const booking = await Booking.findById(
-        bookingId
-    ).populate(
-        "customer",
-        "customerCode shopName ownerName mobile"
-    );
+export const getBookingById = async (bookingId, branch) => {
+    const booking = await Booking.findById(bookingId)
+        .populate(
+            "customer",
+            "customerCode shopName ownerName mobile email address area city district state pincode"
+        )
+        .populate("fromBranch", "name type status")
+        .populate("toBranch", "name type status")
+        .populate("createdBy", "name username")
+        .populate("memo", "memoNumber status memoDate");
 
     if (!booking) {
-        throw new ApiError(
-            404,
-            "Booking not found"
-        );
+        throw new ApiError(404, "Booking not found");
+    }
+
+    // Branch scope check
+    const fromBranchId = booking.fromBranch?._id?.toString() || booking.fromBranch?.toString();
+    const toBranchId = booking.toBranch?._id?.toString() || booking.toBranch?.toString();
+    const currentBranchId = branch._id.toString();
+
+    if (fromBranchId !== currentBranchId && toBranchId !== currentBranchId) {
+        throw new ApiError(403, "You do not have access to this booking");
     }
 
     return booking;
 };
 
-
 /**
  * Update Booking
+ * - Only the origin BOOKING branch can update
+ * - Cannot update if already assigned to a memo or cancelled
  */
-export const updateBooking = async (
-    bookingId,
-    bookingData
-) => {
-
-    const booking =
-        await Booking.findById(bookingId);
+export const updateBooking = async (bookingId, bookingData, branch) => {
+    const booking = await Booking.findById(bookingId);
 
     if (!booking) {
+        throw new ApiError(404, "Booking not found");
+    }
+
+    // 1. Branch ownership check
+    const fromBranchId = booking.fromBranch?.toString();
+    if (fromBranchId !== branch._id.toString()) {
+        throw new ApiError(403, "You are not allowed to modify this booking");
+    }
+
+    // 2. Immutability / Memo check
+    if (booking.memo) {
         throw new ApiError(
-            404,
-            "Booking not found"
+            400,
+            "Booking cannot be modified because it is already assigned to a memo"
         );
     }
 
-    // Update charges if provided
+    // 3. Status check
+    if (booking.status === "CANCELLED") {
+        throw new ApiError(400, "Cancelled bookings cannot be modified");
+    }
 
-    const parcelCharge =
-        Number(bookingData.parcelCharge || 0);
+    // 4. If destination branch is being changed, validate it
+    if (bookingData.toBranch) {
+        const toBranch = await Branch.findById(bookingData.toBranch);
+        if (!toBranch || toBranch.status !== "ACTIVE") {
+            throw new ApiError(400, "Invalid or inactive destination branch");
+        }
+    }
 
-    const crossing =
-        bookingData.crossing ??
-        booking.crossing;
+    // 5. Prevent altering immutable security fields
+    delete bookingData.fromBranch;
+    delete bookingData.createdBy;
+    delete bookingData.bookingNumber;
+    delete bookingData.memo;
 
-    const freight =
-        bookingData.freight ??
-        booking.freight;
+    // 6. Recalculate charges if provided
+    const parcelCharge = bookingData.parcelCharge !== undefined
+        ? Number(bookingData.parcelCharge)
+        : booking.parcelCharge;
 
-    const hamali =
-        bookingData.hamali ??
-        booking.hamali;
+    const crossing = bookingData.crossing !== undefined
+        ? Number(bookingData.crossing)
+        : booking.crossing;
 
-    const biltyCharge =
-        bookingData.biltyCharge ??
-        booking.biltyCharge;
+    const freight = bookingData.freight !== undefined
+        ? Number(bookingData.freight)
+        : booking.freight;
 
-    const otherCharges =
-        bookingData.otherCharges ??
-        booking.otherCharges;
+    const hamali = bookingData.hamali !== undefined
+        ? Number(bookingData.hamali)
+        : booking.hamali;
 
-    // Recalculate Total Amount
+    const biltyCharge = bookingData.biltyCharge !== undefined
+        ? Number(bookingData.biltyCharge)
+        : booking.biltyCharge;
+
+    const otherCharges = bookingData.otherCharges !== undefined
+        ? Number(bookingData.otherCharges)
+        : booking.otherCharges;
+
     const totalAmount =
-        Number(parcelCharge) +
-        Number(crossing) +
-        Number(freight) +
-        Number(hamali) +
-        Number(biltyCharge) +
-        Number(otherCharges);
+        parcelCharge +
+        crossing +
+        freight +
+        hamali +
+        biltyCharge +
+        otherCharges;
 
-    // Calculate Payment Details
+    const collectionType = bookingData.collectionType || booking.collectionType;
+
     const payment = calculatePaymentDetails(
-        bookingData.collectionType,
+        collectionType,
         totalAmount
     );
 
-    // Update Booking
     booking.set({
         ...bookingData,
         totalAmount,
@@ -237,57 +322,77 @@ export const updateBooking = async (
 
     await booking.save();
 
-    return booking;
+    return await Booking.findById(booking._id)
+        .populate("customer", "customerCode shopName ownerName mobile email address area city district state pincode deliveryAddress")
+        .populate("fromBranch", "name type status")
+        .populate("toBranch", "name type status")
+        .populate("createdBy", "name username");
 };
-
 
 /**
  * Cancel Booking
+ * - Only the origin BOOKING branch can cancel
+ * - Cannot cancel if already assigned to a memo or already cancelled
  */
-export const cancelBooking = async (
-    bookingId
-) => {
-
-    const booking =
-        await Booking.findByIdAndUpdate(
-            bookingId,
-            {
-                status: "CANCELLED",
-            },
-            {
-                new: true,
-            }
-        );
+export const cancelBooking = async (bookingId, branch) => {
+    const booking = await Booking.findById(bookingId);
 
     if (!booking) {
+        throw new ApiError(404, "Booking not found");
+    }
+
+    // 1. Branch ownership check
+    const fromBranchId = booking.fromBranch?.toString();
+    if (fromBranchId !== branch._id.toString()) {
+        throw new ApiError(403, "You are not allowed to cancel this booking");
+    }
+
+    // 2. Memo check
+    if (booking.memo) {
         throw new ApiError(
-            404,
-            "Booking not found"
+            400,
+            "Booking cannot be cancelled because it is already assigned to a memo"
         );
     }
+
+    // 3. Status check
+    if (booking.status === "CANCELLED") {
+        throw new ApiError(400, "Booking is already cancelled");
+    }
+
+    booking.status = "CANCELLED";
+    await booking.save();
 
     return booking;
 };
 
-
-
 /**
  * Delete Booking
- *
- * Only BOOKED and CANCELLED bookings can be deleted.
- * DELIVERED and IN_TRANSIT bookings cannot be deleted.
+ * - Only the origin BOOKING branch can delete
+ * - Allowed only if BOOKED or CANCELLED and not attached to a memo
  */
-export const deleteBooking = async (bookingId) => {
+export const deleteBooking = async (bookingId, branch) => {
     const booking = await Booking.findById(bookingId);
 
     if (!booking) {
+        throw new ApiError(404, "Booking not found");
+    }
+
+    // 1. Branch ownership check
+    const fromBranchId = booking.fromBranch?.toString();
+    if (fromBranchId !== branch._id.toString()) {
+        throw new ApiError(403, "You are not allowed to delete this booking");
+    }
+
+    // 2. Memo check
+    if (booking.memo) {
         throw new ApiError(
-            404,
-            "Booking not found"
+            400,
+            "Booking cannot be deleted because it is assigned to a memo"
         );
     }
 
-    // Allow deletion only for BOOKED or CANCELLED bookings
+    // 3. Allow deletion only for BOOKED or CANCELLED bookings
     if (
         booking.status !== "BOOKED" &&
         booking.status !== "CANCELLED"

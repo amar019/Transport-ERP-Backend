@@ -32,16 +32,21 @@ export const createBookingValidation = [
         .isMongoId()
         .withMessage("Invalid customer ID"),
 
+    // Destination Branch
+    body("toBranch")
+        .trim()
+        .notEmpty()
+        .withMessage("Destination branch is required")
+        .isMongoId()
+        .withMessage("Invalid destination branch ID"),
 
     body("from")
-        .trim()
-        .notEmpty()
-        .withMessage("From location is required"),
+        .optional()
+        .trim(),
 
     body("to")
-        .trim()
-        .notEmpty()
-        .withMessage("To location is required"),
+        .optional()
+        .trim(),
 
     // Delivery Information
     body("deliveryAddress")

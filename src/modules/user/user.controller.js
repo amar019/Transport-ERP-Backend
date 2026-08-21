@@ -2,68 +2,107 @@ import asyncHandler from "../../utils/asyncHandler.js";
 import ApiResponse from "../../utils/ApiResponse.js";
 import userService from "./user.service.js";
 
+
 /**
  * Login
  */
-export const login = asyncHandler(async (req, res) => {
-    const { username, password } = req.body;
+export const loginController = asyncHandler(
+    async (req, res) => {
 
-    const data = await userService.loginUser(username, password);
+        const {
+            username,
+            password,
+        } = req.body;
 
-    return res
-        .status(200)
-        .json(new ApiResponse(200, data, "Login successful"));
-});
+
+        const result =
+            await userService.loginUser(
+                username,
+                password
+            );
+
+
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                result,
+                "Login successful"
+            )
+        );
+    }
+);
+
 
 /**
  * Get Current User
  */
-export const getCurrentUser = asyncHandler(async (req, res) => {
-    const user = await userService.getCurrentUser(req.user._id);
+export const getCurrentUserController =
+    asyncHandler(
+        async (req, res) => {
 
-    return res
-        .status(200)
-        .json(new ApiResponse(200, user, "User fetched successfully"));
-});
+            const user =
+                await userService.getCurrentUser(
+                    req.user.id
+                );
+
+
+            return res.status(200).json(
+                new ApiResponse(
+                    200,
+                    user,
+                    "User fetched successfully"
+                )
+            );
+        }
+    );
+
 
 /**
  * Change Password
  */
-export const changePassword = asyncHandler(async (req, res) => {
-    const { currentPassword, newPassword } = req.body;
+export const changePasswordController =
+    asyncHandler(
+        async (req, res) => {
 
-    await userService.changePassword(
-        req.user._id,
-        currentPassword,
-        newPassword
+            const {
+                currentPassword,
+                newPassword,
+            } = req.body;
+
+
+            await userService.changePassword(
+                req.user.id,
+                currentPassword,
+                newPassword
+            );
+
+
+            return res.status(200).json(
+                new ApiResponse(
+                    200,
+                    null,
+                    "Password changed successfully"
+                )
+            );
+        }
     );
 
-    return res
-        .status(200)
-        .json(new ApiResponse(200, null, "Password changed successfully"));
-});
+
 
 /**
- * Switch Branch
- */
-export const switchBranch = asyncHandler(async (req, res) => {
-    const { currentBranch } = req.body;
+* Logout User
+*/
+export const logout = asyncHandler(
+    async (req, res) => {
 
-    const user = await userService.switchBranch(
-        req.user._id,
-        currentBranch
-    );
+        await userService.logoutUser();
 
-    return res
-        .status(200)
-        .json(new ApiResponse(200, user, "Branch switched successfully"));
-});
-
-/**
- * Logout
- */
-export const logout = asyncHandler(async (req, res) => {
-    return res
-        .status(200)
-        .json(new ApiResponse(200, null, "Logout successful"));
-});
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                null,
+                "Logout successful"
+            )
+        );
+    }
+);

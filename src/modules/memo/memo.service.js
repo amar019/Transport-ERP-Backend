@@ -1,51 +1,88 @@
-import mongoose from "mongoose"
-
+import mongoose from "mongoose";
 
 import Memo from "./memo.model.js";
 import Booking from "../Booking/booking.model.js";
-
+import Branch from "../Branch/branch.model.js";
 import ApiError from "../../utils/ApiErrors.js";
 
 /**
- * Create Memo
+ * Generate next Memo Number
+ * Example: MEM-0001, MEM-0002
  */
-const createMemoService = async (memoData) => {
+const generateMemoNumber = async (session) => {
+    const query = Memo.findOne().sort({ createdAt: -1 }).select("memoNumber");
+    if (session) query.session(session);
 
+    const lastMemo = await query;
+
+    if (!lastMemo || !lastMemo.memoNumber) {
+        return "MEM-0001";
+    }
+
+    const parts = lastMemo.memoNumber.split("-");
+    const lastNumber = parseInt(parts[1], 10);
+    const nextNumber = isNaN(lastNumber) ? 1 : lastNumber + 1;
+
+    return `MEM-${String(nextNumber).padStart(4, "0")}`;
+};
+
+/**
+ * Create Memo (Draft)
+ * Role: BOOKING branch only
+ * Enforces:
+ * - fromBranch = current user's branch
+ * - toBranch = valid active destination branch
+ * - All selected bookings belong to fromBranch AND toBranch
+ * - All selected bookings are in BOOKED status and not yet assigned to any memo
+ */
+const createMemoService = async (memoData, branch, user) => {
     const session = await mongoose.startSession();
 
     try {
-
         session.startTransaction();
 
-        const {
-            from,
-            to,
-            bookings,
-            notes,
-        } = memoData;
+        const { toBranch: toBranchId, bookings, notes } = memoData;
 
-        // Validate bookings
+        // 1. Validate destination branch exists and is active
+        const toBranch = await Branch.findById(toBranchId).session(session);
+        if (!toBranch) {
+            throw new ApiError(404, "Destination branch not found.");
+        }
+
+        if (toBranch.status !== "ACTIVE") {
+            throw new ApiError(400, "Destination branch is inactive.");
+        }
+
+        if (toBranch._id.toString() === branch._id.toString()) {
+            throw new ApiError(400, "Origin and destination branch cannot be the same.");
+        }
+
+        // 2. Validate bookings
         if (!bookings || bookings.length === 0) {
             throw new ApiError(400, "Please select at least one booking.");
         }
 
-        // Fetch booking documents
-        const bookingDocs = await Booking.find({
-            _id: { $in: bookings }
-        }).session(session);
-
-        // Validate all bookings exist
-        if (bookingDocs.length !== bookings.length) {
-            throw new ApiError(404, "One or more bookings not found.");
+        // Prevent duplicate bookings in request
+        const uniqueBookings = [...new Set(bookings)];
+        if (uniqueBookings.length !== bookings.length) {
+            throw new ApiError(400, "Duplicate bookings are not allowed in the same memo.");
         }
 
-        // Validate bookings
-        for (const booking of bookingDocs) {
+        // Fetch booking documents
+        const bookingDocs = await Booking.find({
+            _id: { $in: bookings },
+        }).session(session);
 
+        if (bookingDocs.length !== bookings.length) {
+            throw new ApiError(404, "One or more selected bookings were not found.");
+        }
+
+        // Validate each booking's status and route consistency
+        for (const booking of bookingDocs) {
             if (booking.status !== "BOOKED") {
                 throw new ApiError(
                     400,
-                    `Booking ${booking.bookingNumber} is not eligible for memo.`
+                    `Booking ${booking.bookingNumber} is not eligible for memo (current status: ${booking.status}).`
                 );
             }
 
@@ -55,544 +92,518 @@ const createMemoService = async (memoData) => {
                     `Booking ${booking.bookingNumber} is already assigned to another memo.`
                 );
             }
+
+            const bookingFromBranch = booking.fromBranch?.toString();
+            const bookingToBranch = booking.toBranch?.toString();
+
+            if (bookingFromBranch !== branch._id.toString()) {
+                throw new ApiError(
+                    400,
+                    `Booking ${booking.bookingNumber} belongs to a different origin branch.`
+                );
+            }
+
+            if (bookingToBranch !== toBranch._id.toString()) {
+                throw new ApiError(
+                    400,
+                    `Booking ${booking.bookingNumber} destination branch does not match the memo destination branch.`
+                );
+            }
         }
 
-        // Calculate collection amount (Only TO_PAY)
+        // 3. Calculate collection amount (Only TO_PAY bookings)
         let totalAmount = 0;
-
         bookingDocs.forEach((booking) => {
             if (booking.collectionType === "TO_PAY") {
-                totalAmount += booking.remainingAmount;
+                totalAmount += Number(booking.remainingAmount || 0);
             }
         });
 
-        // Generate Memo Number
-        const lastMemo = await Memo.findOne()
-            .sort({ createdAt: -1 })
-            .session(session);
+        // 4. Generate Memo Number
+        const memoNumber = await generateMemoNumber(session);
 
-        let memoNumber = "MEM-0001";
-
-        if (lastMemo) {
-            const lastNumber = parseInt(
-                lastMemo.memoNumber.split("-")[1],
-                10
-            );
-
-            memoNumber = `MEM-${String(lastNumber + 1).padStart(4, "0")}`;
-        }
-
-        // Create Memo
+        // 5. Create Memo
         const [memo] = await Memo.create(
-            [{
-                memoNumber,
-                from,
-                to,
-                bookings,
-                totalAmount,
-                pendingAmount: totalAmount,
-                receivedAmount: 0,
-                notes,
-            }],
+            [
+                {
+                    memoNumber,
+                    fromBranch: branch._id,
+                    toBranch: toBranch._id,
+                    createdBy: user._id || user.id,
+                    bookings,
+                    totalAmount,
+                    pendingAmount: totalAmount,
+                    receivedAmount: 0,
+                    collectionStatus: "PENDING",
+                    status: "CREATED",
+                    notes,
+                },
+            ],
             { session }
         );
 
-        // Update bookings with memo reference
+        // 6. Update bookings with memo reference
         await Booking.updateMany(
-            {
-                _id: {
-                    $in: bookings,
-                },
-            },
-            {
-                $set: {
-                    memo: memo._id,
-                },
-            },
-            {
-                session,
-            }
+            { _id: { $in: bookings } },
+            { $set: { memo: memo._id } },
+            { session }
         );
 
         await session.commitTransaction();
 
-        return memo;
-
+        return await Memo.findById(memo._id)
+            .populate("fromBranch", "name type status")
+            .populate("toBranch", "name type status")
+            .populate("createdBy", "name username");
     } catch (error) {
         if (session.inTransaction()) {
             await session.abortTransaction();
         }
-
         throw error;
     } finally {
         await session.endSession();
-
     }
 };
 
+/**
+ * Get All Memos (Role- and Branch-scoped)
+ * - BOOKING branch: returns memos where fromBranch = branch._id
+ * - DELIVERY branch: returns memos where toBranch = branch._id
+ */
+const getAllMemosService = async (branch, queryParams = {}) => {
+    const filter = {};
 
+    if (branch.type === "BOOKING") {
+        filter.fromBranch = branch._id;
+    } else if (branch.type === "DELIVERY") {
+        filter.toBranch = branch._id;
+    }
 
+    if (queryParams.status) {
+        filter.status = queryParams.status;
+    }
 
+    if (queryParams.collectionStatus) {
+        filter.collectionStatus = queryParams.collectionStatus;
+    }
 
-//getAllMemos
-const getAllMemosService = async () => {
+    if (queryParams.search) {
+        filter.memoNumber = { $regex: queryParams.search, $options: "i" };
+    }
 
-    const memos = await Memo.find()
+    const memos = await Memo.find(filter)
+        .populate("fromBranch", "name type status")
+        .populate("toBranch", "name type status")
+        .populate("createdBy", "name username")
+        .populate("receivedBy", "name username")
+        .populate({
+            path: "bookings",
+            select: "quantity totalAmount collectionType remainingAmount",
+        })
         .sort({ createdAt: -1 })
         .lean();
 
-    return memos.map((memo) => ({
-        _id: memo._id,
-        memoNumber: memo.memoNumber,
-        memoDate: memo.memoDate,
-        from: memo.from,
-        to: memo.to,
-        totalAmount: memo.totalAmount,
-        collectionStatus: memo.collectionStatus,
-        status: memo.status,
-        bookingsCount: memo.bookings.length,
-    }));
-}
+    return memos.map((memo) => {
+        const bookings = Array.isArray(memo.bookings) ? memo.bookings : [];
+        const totalPackages = bookings.reduce((sum, b) => sum + Number(b.quantity || 1), 0);
+        const bookingsCount = bookings.length;
+
+        return {
+            _id: memo._id,
+            memoNumber: memo.memoNumber,
+            memoDate: memo.memoDate,
+            date: memo.memoDate,
+            fromBranch: memo.fromBranch,
+            toBranch: memo.toBranch,
+            createdBy: memo.createdBy,
+            receivedBy: memo.receivedBy,
+            totalAmount: memo.totalAmount,
+            totalToPay: memo.totalAmount,
+            receivedAmount: memo.receivedAmount,
+            totalCollected: memo.receivedAmount,
+            pendingAmount: memo.pendingAmount,
+            collectionStatus: memo.collectionStatus,
+            status: memo.status,
+            dispatchedAt: memo.dispatchedAt,
+            receivedAt: memo.receivedAt,
+            bookingsCount,
+            totalBookings: bookingsCount,
+            totalPackages,
+            notes: memo.notes,
+            createdAt: memo.createdAt,
+        };
+    });
+};
 
 /**
- * Get Memo By Id
+ * Get Memo By ID
+ * - Validates that the memo is in scope for the user's branch
  */
-const getMemoByIdService = async (memoId) => {
-
+const getMemoByIdService = async (memoId, branch) => {
     const memo = await Memo.findById(memoId)
+        .populate("fromBranch", "name type status")
+        .populate("toBranch", "name type status")
+        .populate("createdBy", "name username")
+        .populate("receivedBy", "name username")
         .populate({
             path: "bookings",
             select: `
                 bookingNumber
+                bookingDate
                 customer
+                sender
                 itemName
                 quantity
                 totalAmount
+                freight
+                crossing
+                hamali
+                biltyCharge
+                otherCharges
                 collectionType
                 paymentStatus
+                paidAmount
                 remainingAmount
+                fromBranch
+                toBranch
             `,
             populate: {
                 path: "customer",
-                select: `
-                    shopName
-                    mobile
-                    city
-                `,
+                select: "customerCode shopName ownerName mobile city area address deliveryAddress",
             },
         });
 
     if (!memo) {
-        throw new ApiError(
-            404,
-            "Memo not found."
-        );
+        throw new ApiError(404, "Memo not found.");
+    }
+
+    // Branch scope check
+    const fromBranchId = memo.fromBranch?._id?.toString() || memo.fromBranch?.toString();
+    const toBranchId = memo.toBranch?._id?.toString() || memo.toBranch?.toString();
+    const currentBranchId = branch._id.toString();
+
+    if (fromBranchId !== currentBranchId && toBranchId !== currentBranchId) {
+        throw new ApiError(403, "You do not have access to this memo.");
     }
 
     return memo;
 };
 
-
-
-const updateMemoService = async (memoId, memoData) => {
-
+/**
+ * Update Draft Memo
+ * - Only origin BOOKING branch can update
+ * - Only CREATED memos can be updated
+ */
+const updateMemoService = async (memoId, memoData, branch) => {
     const session = await mongoose.startSession();
 
     try {
-
         session.startTransaction();
 
         const memo = await Memo.findById(memoId).session(session);
 
         if (!memo) {
-            throw new ApiError(
-                404,
-                "Memo not found."
-            );
+            throw new ApiError(404, "Memo not found.");
         }
 
-        // Only editable before dispatch
+        // 1. Branch ownership check
+        if (memo.fromBranch.toString() !== branch._id.toString()) {
+            throw new ApiError(403, "You are not allowed to modify this memo.");
+        }
+
+        // 2. Status check
         if (memo.status !== "CREATED") {
-            throw new ApiError(
-                400,
-                "Only created memos can be updated."
-            );
+            throw new ApiError(400, "Only created (draft) memos can be updated.");
         }
 
-        const {
-            from,
-            to,
-            bookings,
-            notes,
-        } = memoData;
+        const { toBranch: toBranchId, bookings, notes } = memoData;
 
-        // At least one booking required
-        if (!bookings || bookings.length === 0) {
-            throw new ApiError(
-                400,
-                "Please select at least one booking."
-            );
+        // 3. If destination branch is being changed, validate it
+        let targetToBranchId = memo.toBranch;
+        if (toBranchId) {
+            const toBranch = await Branch.findById(toBranchId).session(session);
+            if (!toBranch || toBranch.status !== "ACTIVE") {
+                throw new ApiError(400, "Invalid or inactive destination branch.");
+            }
+            if (toBranch._id.toString() === branch._id.toString()) {
+                throw new ApiError(400, "Origin and destination branch cannot be the same.");
+            }
+            targetToBranchId = toBranch._id;
+            memo.toBranch = targetToBranchId;
         }
 
-        // Prevent duplicate bookings
-        const uniqueBookings = [...new Set(bookings)];
+        // 4. Update bookings if provided
+        if (bookings) {
+            if (!Array.isArray(bookings) || bookings.length === 0) {
+                throw new ApiError(400, "Please select at least one booking.");
+            }
 
-        if (uniqueBookings.length !== bookings.length) {
-            throw new ApiError(
-                400,
-                "Duplicate bookings are not allowed."
-            );
-        }
+            const uniqueBookings = [...new Set(bookings)];
+            if (uniqueBookings.length !== bookings.length) {
+                throw new ApiError(400, "Duplicate bookings are not allowed.");
+            }
 
-        // Current memo bookings
-        const oldBookings = memo.bookings.map(id => id.toString());
+            const oldBookings = memo.bookings.map((id) => id.toString());
+            const newBookings = uniqueBookings.map((id) => id.toString());
 
-        // Updated bookings
-        const newBookings = bookings.map(id => id.toString());
+            const addedBookings = newBookings.filter((id) => !oldBookings.includes(id));
+            const removedBookings = oldBookings.filter((id) => !newBookings.includes(id));
 
-        // Find newly added bookings
-        const addedBookings = newBookings.filter(
-            id => !oldBookings.includes(id)
-        );
+            // Validate added bookings
+            if (addedBookings.length > 0) {
+                const addedBookingDocs = await Booking.find({
+                    _id: { $in: addedBookings },
+                }).session(session);
 
-        // Find removed bookings
-        const removedBookings = oldBookings.filter(
-            id => !newBookings.includes(id)
-        );
+                if (addedBookingDocs.length !== addedBookings.length) {
+                    throw new ApiError(404, "One or more added bookings were not found.");
+                }
 
-        /**
-         * Validate Added Bookings
-         */
-        const addedBookingDocs = await Booking.find({
-            _id: {
-                $in: addedBookings,
-            },
-        }).session(session);
+                for (const booking of addedBookingDocs) {
+                    if (booking.status !== "BOOKED") {
+                        throw new ApiError(
+                            400,
+                            `Booking ${booking.bookingNumber} is not eligible for memo.`
+                        );
+                    }
 
-        if (addedBookingDocs.length !== addedBookings.length) {
-            throw new ApiError(
-                404,
-                "One or more bookings not found."
-            );
-        }
+                    if (booking.memo) {
+                        throw new ApiError(
+                            400,
+                            `Booking ${booking.bookingNumber} is already assigned to another memo.`
+                        );
+                    }
 
-        for (const booking of addedBookingDocs) {
+                    if (booking.fromBranch?.toString() !== branch._id.toString()) {
+                        throw new ApiError(
+                            400,
+                            `Booking ${booking.bookingNumber} belongs to a different origin branch.`
+                        );
+                    }
 
-            if (booking.status !== "BOOKED") {
-                throw new ApiError(
-                    400,
-                    `Booking ${booking.bookingNumber} is not eligible for memo.`
+                    if (booking.toBranch?.toString() !== targetToBranchId.toString()) {
+                        throw new ApiError(
+                            400,
+                            `Booking ${booking.bookingNumber} destination does not match memo destination.`
+                        );
+                    }
+                }
+            }
+
+            // Remove memo reference from removed bookings
+            if (removedBookings.length > 0) {
+                await Booking.updateMany(
+                    { _id: { $in: removedBookings } },
+                    { $set: { memo: null } },
+                    { session }
                 );
             }
 
-            if (booking.memo) {
-                throw new ApiError(
-                    400,
-                    `Booking ${booking.bookingNumber} is already assigned to another memo.`
+            // Assign memo reference to added bookings
+            if (addedBookings.length > 0) {
+                await Booking.updateMany(
+                    { _id: { $in: addedBookings } },
+                    { $set: { memo: memo._id } },
+                    { session }
                 );
             }
 
-        }
+            // Recalculate collection amount for all current bookings
+            const allBookingDocs = await Booking.find({
+                _id: { $in: newBookings },
+            })
+                .select("collectionType remainingAmount")
+                .session(session);
 
-        /**
-         * Remove memo reference
-         */
-        if (removedBookings.length > 0) {
-
-            await Booking.updateMany(
-                {
-                    _id: {
-                        $in: removedBookings,
-                    },
-                },
-                {
-                    $set: {
-                        memo: null,
-                    },
-                },
-                {
-                    session,
-                }
-            );
-
-        }
-
-        /**
-         * Assign memo reference
-         */
-        if (addedBookings.length > 0) {
-
-            await Booking.updateMany(
-                {
-                    _id: {
-                        $in: addedBookings,
-                    },
-                },
-                {
-                    $set: {
-                        memo: memo._id,
-                    },
-                },
-                {
-                    session,
-                }
-            );
-
-        }
-
-        /**
-         * Recalculate Collection Amount
-         */
-        const bookingDocs = await Booking.find({
-            _id: {
-                $in: bookings,
-            },
-        })
-            .select("collectionType remainingAmount")
-            .session(session);
-
-        if (bookingDocs.length !== bookings.length) {
-            throw new ApiError(
-                404,
-                "One or more bookings not found."
-            );
-        }
-
-        const totalAmount = bookingDocs.reduce(
-            (total, booking) => {
-
+            const totalAmount = allBookingDocs.reduce((total, booking) => {
                 if (booking.collectionType === "TO_PAY") {
-                    total += booking.remainingAmount;
+                    total += Number(booking.remainingAmount || 0);
                 }
-
                 return total;
+            }, 0);
 
-            },
-            0
-        );
+            memo.bookings = newBookings;
+            memo.totalAmount = totalAmount;
+            memo.pendingAmount = Math.max(totalAmount - memo.receivedAmount, 0);
+        }
 
-        /**
-         * Update Memo
-         */
-        if (from !== undefined) memo.from = from;
-        if (to !== undefined) memo.to = to;
         if (notes !== undefined) memo.notes = notes;
 
-        memo.bookings = bookings;
-
-        memo.totalAmount = totalAmount;
-
-        memo.pendingAmount = Math.max(
-            totalAmount - memo.receivedAmount,
-            0
-        );
-
         await memo.save({ session });
-
         await session.commitTransaction();
 
-        return memo;
-
+        return await Memo.findById(memo._id)
+            .populate("fromBranch", "name type status")
+            .populate("toBranch", "name type status")
+            .populate("createdBy", "name username");
     } catch (error) {
-
-        await session.abortTransaction();
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
         throw error;
-
     } finally {
-
         await session.endSession();
-
     }
-
 };
 
-
 /**
- * Delete Memo
+ * Delete Draft Memo
+ * - Only origin BOOKING branch can delete
+ * - Only CREATED memos can be deleted
  */
-const deleteMemoService = async (memoId) => {
-
+const deleteMemoService = async (memoId, branch) => {
     const session = await mongoose.startSession();
 
     try {
-
         session.startTransaction();
 
-        // Find Memo
-        const memo = await Memo.findById(memoId)
-            .session(session);
+        const memo = await Memo.findById(memoId).session(session);
 
         if (!memo) {
-            throw new ApiError(
-                404,
-                "Memo not found."
-            );
+            throw new ApiError(404, "Memo not found.");
         }
 
-        // Only CREATED memos can be deleted
+        // 1. Branch ownership check
+        if (memo.fromBranch.toString() !== branch._id.toString()) {
+            throw new ApiError(403, "You are not allowed to delete this memo.");
+        }
+
+        // 2. Status check
         if (memo.status !== "CREATED") {
-            throw new ApiError(
-                400,
-                "Only created memos can be deleted."
-            );
+            throw new ApiError(400, "Only created (draft) memos can be deleted.");
         }
 
-        // Remove memo reference from bookings
+        // 3. Remove memo reference from bookings
         await Booking.updateMany(
-            {
-                _id: {
-                    $in: memo.bookings,
-                },
-            },
-            {
-                $set: {
-                    memo: null,
-                },
-            },
-            {
-                session,
-            }
+            { _id: { $in: memo.bookings } },
+            { $set: { memo: null } },
+            { session }
         );
 
-        // Delete memo
-        await memo.deleteOne({
-            session,
-        });
+        // 4. Delete memo
+        await memo.deleteOne({ session });
 
         await session.commitTransaction();
-
     } catch (error) {
-
-        await session.abortTransaction();
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
         throw error;
-
     } finally {
-
         await session.endSession();
-
     }
-
 };
 
-
-
 /**
- * Mark Memo On Route
+ * Mark Memo On Route / Dispatched
+ * - Only origin BOOKING branch can dispatch
+ * - Only CREATED memos can be dispatched
  */
-const markMemoOnRouteService = async (memoId) => {
-
-    // Find Memo
+const markMemoOnRouteService = async (memoId, branch) => {
     const memo = await Memo.findById(memoId);
 
     if (!memo) {
-        throw new ApiError(
-            404,
-            "Memo not found."
-        );
+        throw new ApiError(404, "Memo not found.");
     }
 
-    // Only CREATED memos can be dispatched
+    // Branch ownership check
+    if (memo.fromBranch.toString() !== branch._id.toString()) {
+        throw new ApiError(403, "You are not allowed to dispatch this memo.");
+    }
+
+    // Status check
     if (memo.status !== "CREATED") {
-        throw new ApiError(
-            400,
-            "Only created memos can be marked as On Route."
-        );
+        throw new ApiError(400, "Only created memos can be marked as On Route.");
     }
 
-    // Update status
     memo.status = "ON_ROUTE";
     memo.dispatchedAt = new Date();
 
     await memo.save();
 
-    return memo;
+    return await Memo.findById(memo._id)
+        .populate("fromBranch", "name type status")
+        .populate("toBranch", "name type status")
+        .populate("createdBy", "name username");
 };
-
 
 /**
  * Mark Memo Received
+ * - Only destination DELIVERY branch can mark received
+ * - Only ON_ROUTE memos can be received
  */
-const markMemoReceivedService = async (memoId) => {
-
-    // Find Memo
+const markMemoReceivedService = async (memoId, branch, user) => {
     const memo = await Memo.findById(memoId);
 
     if (!memo) {
-        throw new ApiError(
-            404,
-            "Memo not found."
-        );
+        throw new ApiError(404, "Memo not found.");
     }
 
-    // Only ON_ROUTE memos can be received
+    // Destination branch check
+    if (memo.toBranch.toString() !== branch._id.toString()) {
+        throw new ApiError(403, "Only the destination delivery branch can mark this memo as received.");
+    }
+
+    // Status check
     if (memo.status !== "ON_ROUTE") {
-        throw new ApiError(
-            400,
-            "Only On Route memos can be marked as Received."
-        );
+        throw new ApiError(400, "Only On Route memos can be marked as Received.");
     }
 
-    // Update status
     memo.status = "RECEIVED";
     memo.receivedAt = new Date();
+    memo.receivedBy = user._id || user.id;
 
     await memo.save();
 
-    return memo;
+    return await Memo.findById(memo._id)
+        .populate("fromBranch", "name type status")
+        .populate("toBranch", "name type status")
+        .populate("createdBy", "name username")
+        .populate("receivedBy", "name username");
 };
 
-
-const updateMemoCollectionService = async (
-    memoId,
-    amountReceived
-) => {
-
+/**
+ * Record Memo Collection / Settlement
+ * - Only origin BOOKING branch records payment received from delivery branch
+ * - Memo must be dispatched or received (status !== "CREATED")
+ */
+const updateMemoCollectionService = async (memoId, amountReceived, branch) => {
     const memo = await Memo.findById(memoId);
 
     if (!memo) {
+        throw new ApiError(404, "Memo not found.");
+    }
+
+    // Origin branch check
+    if (memo.fromBranch.toString() !== branch._id.toString()) {
         throw new ApiError(
-            404,
-            "Memo not found."
+            403,
+            "Only the origin booking branch can record memo collection / settlement."
         );
     }
 
-    // Cannot collect on draft memo
+    // Cannot collect on un-dispatched draft memo
     if (memo.status === "CREATED") {
-        throw new ApiError(
-            400,
-            "Dispatch the memo before updating collection."
-        );
+        throw new ApiError(400, "Dispatch the memo before recording collection settlement.");
     }
 
     amountReceived = Number(amountReceived);
 
-    if (
-        isNaN(amountReceived) ||
-        amountReceived <= 0
-    ) {
-        throw new ApiError(
-            400,
-            "Please enter a valid received amount."
-        );
+    if (isNaN(amountReceived) || amountReceived <= 0) {
+        throw new ApiError(400, "Please enter a valid received amount.");
     }
 
-    // Prevent over collection
-    if (
-        memo.receivedAmount + amountReceived >
-        memo.totalAmount
-    ) {
+    // Prevent over-collection
+    if (memo.receivedAmount + amountReceived > memo.totalAmount) {
         throw new ApiError(
             400,
-            "Received amount cannot exceed total memo amount."
+            `Received amount (${amountReceived}) exceeds pending memo amount (${memo.pendingAmount}).`
         );
     }
 
     // Update collection
     memo.receivedAmount += amountReceived;
-
-    memo.pendingAmount =
-        memo.totalAmount -
-        memo.receivedAmount;
+    memo.pendingAmount = memo.totalAmount - memo.receivedAmount;
 
     // Update collection status
     if (memo.pendingAmount === 0) {
@@ -603,9 +614,12 @@ const updateMemoCollectionService = async (
 
     await memo.save();
 
-    return memo;
+    return await Memo.findById(memo._id)
+        .populate("fromBranch", "name type status")
+        .populate("toBranch", "name type status")
+        .populate("createdBy", "name username")
+        .populate("receivedBy", "name username");
 };
-
 
 export {
     createMemoService,
@@ -615,6 +629,5 @@ export {
     deleteMemoService,
     markMemoOnRouteService,
     markMemoReceivedService,
-    updateMemoCollectionService
-
+    updateMemoCollectionService,
 };
