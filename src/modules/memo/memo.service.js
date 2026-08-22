@@ -208,6 +208,27 @@ const getAllMemosService = async (branch, queryParams = {}) => {
         const totalPackages = bookings.reduce((sum, b) => sum + Number(b.quantity || 1), 0);
         const bookingsCount = bookings.length;
 
+        // Calculate Gross Total (All bilties), To-Pay Total, and Paid Total
+        let totalMoney = 0;
+        let totalToPay = 0;
+        let totalPaid = 0;
+
+        bookings.forEach((b) => {
+            const bAmount = Number(b.totalAmount || 0);
+            totalMoney += bAmount;
+            if (b.collectionType === "TO_PAY") {
+                totalToPay += Number(b.remainingAmount !== undefined ? b.remainingAmount : bAmount);
+            } else if (b.collectionType === "PAID_AT_BOOKING") {
+                totalPaid += bAmount;
+            }
+        });
+
+        // If totalMoney was not calculated from populated bookings, fallback to memo.totalAmount
+        if (totalMoney === 0 && memo.totalAmount) {
+            totalToPay = Number(memo.totalAmount || 0);
+            totalMoney = totalToPay;
+        }
+
         return {
             _id: memo._id,
             memoNumber: memo.memoNumber,
@@ -217,11 +238,13 @@ const getAllMemosService = async (branch, queryParams = {}) => {
             toBranch: memo.toBranch,
             createdBy: memo.createdBy,
             receivedBy: memo.receivedBy,
-            totalAmount: memo.totalAmount,
-            totalToPay: memo.totalAmount,
-            receivedAmount: memo.receivedAmount,
-            totalCollected: memo.receivedAmount,
-            pendingAmount: memo.pendingAmount,
+            totalMoney, // एकूण (Gross Total)
+            totalPaid, // Paid at booking
+            totalToPay: totalToPay || memo.totalAmount || 0, // एकूण TO_PAY येणे रक्कम
+            totalAmount: memo.totalAmount || totalToPay,
+            receivedAmount: memo.receivedAmount || 0,
+            totalCollected: memo.receivedAmount || 0,
+            pendingAmount: memo.pendingAmount !== undefined ? memo.pendingAmount : (totalToPay - (memo.receivedAmount || 0)),
             collectionStatus: memo.collectionStatus,
             status: memo.status,
             dispatchedAt: memo.dispatchedAt,
