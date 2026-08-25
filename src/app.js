@@ -38,6 +38,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 
+// ── Health Check ────────────────────────────────────────
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Transport ERP Backend is running",
+  });
+});
+
+
 // ── Routes ──────────────────────────────────────────────
 app.use("/api/users", userRoute);
 app.use("/api/customers", customerRoute);
