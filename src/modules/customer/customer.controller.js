@@ -5,13 +5,12 @@ import {
     getCustomerById,
     updateCustomer,
     deactivateCustomer,
+    activateCustomer,
 } from "./customer.service.js";
 
 import asyncHandler from "../../utils/asyncHandler.js";
 import ApiErrors from "../../utils/ApiErrors.js";
 import ApiResponse from "../../utils/ApiResponse.js";
-
-
 
 /**
  * Create Customer
@@ -114,6 +113,32 @@ export const deactivateCustomerController = asyncHandler(
                     200,
                     customer,
                     "Customer deactivated successfully"
+                )
+            );
+    }
+);
+
+// Activate Customer
+export const activateCustomerController = asyncHandler(
+    async (req, res) => {
+        const customer = await activateCustomer(
+            req.params.id
+        );
+
+        if (!customer) {
+            throw new ApiErrors(
+                404,
+                "Customer not found"
+            );
+        }
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(
+                    200,
+                    customer,
+                    "Customer activated successfully"
                 )
             );
     }

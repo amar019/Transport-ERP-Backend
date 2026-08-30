@@ -410,4 +410,12 @@ router.patch(
     deactivateCustomerController
 );
 
+router.patch(
+    "/:id/activate",
+    authMiddleware,
+    customerIdValidation,
+    validate,
+    activateCustomerController
+);
+
 export default router;

@@ -91,3 +91,20 @@ export const deactivateCustomer = async (customerId) => {
 
     return customer;
 };
+
+/**
+ * Activate Customer
+ */
+export const activateCustomer = async (customerId) => {
+    const customer = await Customer.findByIdAndUpdate(
+        customerId,
+        {
+            status: "ACTIVE",
+        },
+        {
+            new: true,
+        }
+    );
+
+    return customer;
+};
