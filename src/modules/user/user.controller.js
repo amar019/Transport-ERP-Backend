@@ -106,3 +106,24 @@ export const logout = asyncHandler(
         );
     }
 );
+
+/**
+ * Update Profile
+ */
+export const updateProfileController = asyncHandler(
+    async (req, res) => {
+
+        const updatedUser = await userService.updateProfile(
+            req.user.id || req.user._id,
+            req.body
+        );
+
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                updatedUser,
+                "User profile updated successfully"
+            )
+        );
+    }
+);

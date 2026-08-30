@@ -5,7 +5,7 @@ import {
     logout,
     getCurrentUserController,
     changePasswordController,
-
+    updateProfileController,
 } from "./user.controller.js";
 
 import {
@@ -131,6 +131,13 @@ router.patch(
     changePasswordController
 );
 
-
+/**
+ * Update Profile
+ */
+router.patch(
+    "/update-profile",
+    auth,
+    updateProfileController
+);
 
 export default router;

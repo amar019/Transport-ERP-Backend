@@ -174,11 +174,42 @@ const logoutUser = async () => {
     return true;
 };
 
+/**
+ * Update User Profile
+ */
+const updateProfile = async (userId, updateData) => {
+    const { name, username, branch } = updateData;
 
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    if (username && username.toLowerCase() !== user.username) {
+        const existing = await User.findOne({ username: username.toLowerCase() });
+        if (existing) {
+            throw new ApiError(409, "Username is already taken");
+        }
+        user.username = username.toLowerCase();
+    }
+
+    if (name) user.name = name;
+    if (branch) user.branch = branch;
+
+    await user.save();
+
+    const updatedUser = await User.findById(userId).populate({
+        path: "branch",
+        select: "name type status",
+    });
+
+    return updatedUser;
+};
 
 export default {
     loginUser,
     getCurrentUser,
     changePassword,
-    logoutUser
+    logoutUser,
+    updateProfile,
 };
