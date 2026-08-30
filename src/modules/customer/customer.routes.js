@@ -6,6 +6,8 @@ import {
     getCustomerByIdController,
     updateCustomerController,
     deactivateCustomerController,
+    activateCustomerController
+
 } from "./customer.controller.js";
 
 import {
