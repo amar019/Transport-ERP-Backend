@@ -32,6 +32,11 @@ const createExpenseValidation = [
         .isFloat({ min: 0 })
         .withMessage("Expense amount must be a valid positive number"),
 
+    body("paymentMode")
+        .optional()
+        .isIn(["CASH", "UPI", "BANK_TRANSFER", "CHEQUE"])
+        .withMessage("Invalid payment mode"),
+
     body("description")
         .optional()
         .trim()

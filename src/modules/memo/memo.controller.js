@@ -127,19 +127,19 @@ const markMemoReceivedController = asyncHandler(async (req, res) => {
  */
 const updateMemoCollectionController = asyncHandler(async (req, res) => {
     const { memoId } = req.params;
-    const { amountReceived } = req.body;
 
     const memo = await updateMemoCollectionService(
         memoId,
-        amountReceived,
-        req.branch
+        req.body,
+        req.branch,
+        req.user
     );
 
     return res.status(200).json(
         new ApiResponse(
             200,
             memo,
-            "Memo collection updated successfully."
+            "Memo settlement recorded successfully."
         )
     );
 });

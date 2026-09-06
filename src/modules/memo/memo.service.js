@@ -4,6 +4,8 @@ import Memo from "./memo.model.js";
 import Booking from "../Booking/booking.model.js";
 import Branch from "../Branch/branch.model.js";
 import ApiError from "../../utils/ApiErrors.js";
+import Payment from "../Payment/payment.model.js";
+import { generateTransactionNumber } from "../Payment/payment.helper.js";
 
 /**
  * Generate next Memo Number
@@ -589,59 +591,120 @@ const markMemoReceivedService = async (memoId, branch, user) => {
  * Record Memo Collection / Settlement
  * - Only origin BOOKING branch records payment received from delivery branch
  * - Memo must be dispatched or received (status !== "CREATED")
+ * - Strictly validates settlementAmount <= server-calculated pendingAmount
+ * - Auto-creates INFLOW Payment transaction (MEMO_SETTLEMENT)
  */
-const updateMemoCollectionService = async (memoId, amountReceived, branch) => {
-    const memo = await Memo.findById(memoId);
+const updateMemoCollectionService = async (memoId, settlementData, branch, user) => {
+    const session = await mongoose.startSession();
 
-    if (!memo) {
-        throw new ApiError(404, "Memo not found.");
-    }
+    try {
+        session.startTransaction();
 
-    // Origin branch check
-    if (memo.fromBranch.toString() !== branch._id.toString()) {
-        throw new ApiError(
-            403,
-            "Only the origin booking branch can record memo collection / settlement."
+        const memo = await Memo.findById(memoId).session(session);
+
+        if (!memo) {
+            throw new ApiError(404, "Memo not found.");
+        }
+
+        // Origin branch check
+        if (memo.fromBranch.toString() !== branch._id.toString()) {
+            throw new ApiError(
+                403,
+                "Only the origin booking branch can record memo collection / settlement."
+            );
+        }
+
+        // Cannot collect on un-dispatched draft memo
+        if (memo.status === "CREATED") {
+            throw new ApiError(400, "Dispatch the memo before recording collection settlement.");
+        }
+
+        // Handle string or object input for settlementData
+        const amountReceived = Number(
+            typeof settlementData === "object"
+                ? settlementData.amount || settlementData.amountReceived
+                : settlementData
         );
-    }
 
-    // Cannot collect on un-dispatched draft memo
-    if (memo.status === "CREATED") {
-        throw new ApiError(400, "Dispatch the memo before recording collection settlement.");
-    }
+        if (isNaN(amountReceived) || amountReceived <= 0) {
+            throw new ApiError(400, "Please enter a valid settlement amount.");
+        }
 
-    amountReceived = Number(amountReceived);
+        const paymentMode =
+            typeof settlementData === "object" && settlementData.paymentMode
+                ? settlementData.paymentMode
+                : "BANK_TRANSFER";
 
-    if (isNaN(amountReceived) || amountReceived <= 0) {
-        throw new ApiError(400, "Please enter a valid received amount.");
-    }
+        const referenceNumber =
+            typeof settlementData === "object" && settlementData.referenceNumber
+                ? settlementData.referenceNumber
+                : null;
 
-    // Prevent over-collection
-    if (memo.receivedAmount + amountReceived > memo.totalAmount) {
-        throw new ApiError(
-            400,
-            `Received amount (${amountReceived}) exceeds pending memo amount (${memo.pendingAmount}).`
+        const remarks =
+            typeof settlementData === "object" && settlementData.remarks
+                ? settlementData.remarks
+                : `Memo settlement received for ${memo.memoNumber}`;
+
+        // Calculate pending amount strictly server-side
+        const currentPending = memo.totalAmount - memo.receivedAmount;
+
+        // Prevent over-collection
+        if (amountReceived > currentPending) {
+            throw new ApiError(
+                400,
+                `Settlement amount (₹${amountReceived}) exceeds server-calculated pending memo amount (₹${currentPending}).`
+            );
+        }
+
+        // Update memo settlement balance
+        memo.receivedAmount += amountReceived;
+        memo.pendingAmount = Math.max(memo.totalAmount - memo.receivedAmount, 0);
+
+        if (memo.pendingAmount === 0) {
+            memo.collectionStatus = "COMPLETED";
+        } else {
+            memo.collectionStatus = "PARTIAL";
+        }
+
+        await memo.save({ session });
+
+        // Auto-create INFLOW Payment (MEMO_SETTLEMENT)
+        const transactionNumber = await generateTransactionNumber(session);
+        await Payment.create(
+            [
+                {
+                    transactionNumber,
+                    transactionDate: Date.now(),
+                    type: "INFLOW",
+                    category: "MEMO_SETTLEMENT",
+                    amount: amountReceived,
+                    paymentMode,
+                    referenceNumber,
+                    branch: branch._id,
+                    memo: memo._id,
+                    createdBy: user._id || user.id,
+                    remarks,
+                    status: "ACTIVE",
+                },
+            ],
+            { session }
         );
+
+        await session.commitTransaction();
+
+        return await Memo.findById(memo._id)
+            .populate("fromBranch", "name type status")
+            .populate("toBranch", "name type status")
+            .populate("createdBy", "name username")
+            .populate("receivedBy", "name username");
+    } catch (error) {
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
+        throw error;
+    } finally {
+        await session.endSession();
     }
-
-    // Update collection
-    memo.receivedAmount += amountReceived;
-    memo.pendingAmount = memo.totalAmount - memo.receivedAmount;
-
-    // Update collection status
-    if (memo.pendingAmount === 0) {
-        memo.collectionStatus = "COMPLETED";
-    } else {
-        memo.collectionStatus = "PARTIAL";
-    }
-
-    await memo.save();
-
-    return await Memo.findById(memo._id)
-        .populate("fromBranch", "name type status")
-        .populate("toBranch", "name type status")
-        .populate("createdBy", "name username")
-        .populate("receivedBy", "name username");
 };
 
 export {

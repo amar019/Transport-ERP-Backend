@@ -33,6 +33,13 @@ const expenseSchema = new mongoose.Schema(
             min: [0, "Expense amount cannot be negative"],
         },
 
+        paymentMode: {
+            type: String,
+            enum: ["CASH", "UPI", "BANK_TRANSFER", "CHEQUE"],
+            default: "CASH",
+            required: [true, "Payment mode is required"],
+        },
+
         description: {
             type: String,
             trim: true,

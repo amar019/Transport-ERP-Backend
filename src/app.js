@@ -7,6 +7,7 @@ import bookingRoute from "./modules/Booking/booking.routes.js";
 import memoRoutes from "./modules/memo/memo.routes.js";
 import branchRoute from "./modules/Branch/branch.routes.js";
 import expenseRoutes from "./modules/Expenses/expense.routes.js";
+import paymentRoutes from "./modules/Payment/payment.routes.js";
 import { swaggerUi, swaggerSpec } from "./docs/swagger.js";
 
 const app = express();
@@ -46,6 +47,7 @@ app.use("/api/bookings", bookingRoute);
 app.use("/api/memos", memoRoutes);
 app.use("/api/branches", branchRoute);
 app.use("/api/expenses", expenseRoutes);
+app.use("/api/payments", paymentRoutes);
 // Swagger
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 

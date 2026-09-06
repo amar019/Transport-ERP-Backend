@@ -121,6 +121,12 @@ export const createBookingValidation = [
         .isFloat({ min: 0 })
         .withMessage("Paid amount must be a valid number"),
 
+    // Payment Mode
+    body("paymentMode")
+        .optional()
+        .isIn(["CASH", "UPI", "BANK_TRANSFER", "CHEQUE"])
+        .withMessage("Invalid payment mode"),
+
     // Notes
     body("notes")
         .optional()
