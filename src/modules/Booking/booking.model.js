@@ -161,6 +161,43 @@ const bookingSchema = new mongoose.Schema(
         },
 
 
+        delivery: {
+            deliveryBoy: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "DeliveryBoy",
+                default: null,
+            },
+
+            status: {
+                type: String,
+                enum: [
+                    "PENDING",
+                    "ASSIGNED",
+                    "OUT_FOR_DELIVERY",
+                    "DELIVERED",
+                    "FAILED",
+                ],
+                default: "PENDING",
+            },
+
+            assignedAt: {
+                type: Date,
+                default: null,
+            },
+
+            deliveredAt: {
+                type: Date,
+                default: null,
+            },
+
+            remarks: {
+                type: String,
+                trim: true,
+                default: "",
+            },
+        },
+
+
 
         // Notes
         notes: {
@@ -184,6 +221,8 @@ bookingSchema.index({ fromBranch: 1, createdAt: -1 });
 bookingSchema.index({ toBranch: 1, createdAt: -1 });
 bookingSchema.index({ status: 1 });
 bookingSchema.index({ memo: 1 });
+bookingSchema.index({ toBranch: 1, "delivery.status": 1 });
+bookingSchema.index({ "delivery.deliveryBoy": 1, "delivery.status": 1 });
 
 const Booking = mongoose.model("Booking", bookingSchema);
 
