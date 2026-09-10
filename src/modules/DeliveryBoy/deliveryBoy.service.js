@@ -5,11 +5,12 @@ import DeliveryBoy from "./deliveryBoy.model.js";
  */
 export const createDeliveryBoyService = async (data) => {
     const { name, mobile, branch } = data;
+    const branchId = branch?._id || branch;
 
     // Check duplicate mobile within branch
     const existingDeliveryBoy = await DeliveryBoy.findOne({
         mobile,
-        branch,
+        branch: branchId,
     });
 
     if (existingDeliveryBoy) {
@@ -21,7 +22,7 @@ export const createDeliveryBoyService = async (data) => {
     const deliveryBoy = await DeliveryBoy.create({
         name,
         mobile,
-        branch,
+        branch: branchId,
     });
 
     return deliveryBoy;
@@ -31,12 +32,17 @@ export const createDeliveryBoyService = async (data) => {
 /**
  * Get All Delivery Boys
  */
-export const getAllDeliveryBoysService = async (branchId) => {
+export const getAllDeliveryBoysService = async (branchId, queryParams = {}) => {
     const filter = {};
+    const actualBranchId = branchId?._id || branchId;
 
     // If branchId is provided, only return that branch's delivery boys
-    if (branchId) {
-        filter.branch = branchId;
+    if (actualBranchId) {
+        filter.branch = actualBranchId;
+    }
+
+    if (queryParams.status) {
+        filter.status = queryParams.status;
     }
 
     return await DeliveryBoy.find(filter)
@@ -64,9 +70,10 @@ export const getDeliveryBoyByIdService = async (id) => {
  * Update Delivery Boy
  */
 export const updateDeliveryBoyService = async (id, branchId, data) => {
+    const actualBranchId = branchId?._id || branchId;
     const deliveryBoy = await DeliveryBoy.findOne({
         _id: id,
-        branch: branchId,
+        branch: actualBranchId,
     });
 
     if (!deliveryBoy) {
@@ -76,7 +83,7 @@ export const updateDeliveryBoyService = async (id, branchId, data) => {
     if (data.mobile && data.mobile !== deliveryBoy.mobile) {
         const existingDeliveryBoy = await DeliveryBoy.findOne({
             mobile: data.mobile,
-            branch: branchId,
+            branch: actualBranchId,
             _id: { $ne: id },
         });
 

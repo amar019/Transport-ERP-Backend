@@ -8,6 +8,7 @@ import Branch from "../Branch/branch.model.js";
 import { calculatePaymentDetails } from "../../utils/payment.helper.js";
 import Payment from "../Payment/payment.model.js";
 import { generateTransactionNumber } from "../Payment/payment.helper.js";
+import CustomerLedger from "../customerLedger/customerLedger.model.js";
 
 /**
  * Generate PDF Service
@@ -156,6 +157,51 @@ export const createBooking = async (bookingData, branch, user) => {
             ],
             { session }
         );
+
+
+        // 6. Create Customer Ledger entry for TO_PAY booking
+        if (booking.collectionType === "TO_PAY") {
+            const previousCustomerLedger =
+                await CustomerLedger.findOne({
+                    customer: customer._id,
+                    branch: toBranch._id,
+                })
+                    .sort({ createdAt: -1 })
+                    .session(session);
+
+            const previousCustomerBalance =
+                Number(previousCustomerLedger?.balance || 0);
+
+            const newCustomerBalance =
+                previousCustomerBalance + totalAmount;
+
+            await CustomerLedger.create(
+                [
+                    {
+                        customer: customer._id,
+
+                        booking: booking._id,
+
+                        branch: toBranch._id,
+
+                        transaction: null,
+
+                        type: "BOOKING_DEBIT",
+
+                        debit: totalAmount,
+
+                        credit: 0,
+
+                        balance: newCustomerBalance,
+
+                        remarks: `Bilty ${booking.bookingNumber} - Amount due`,
+
+                        createdBy: user._id || user.id,
+                    },
+                ],
+                { session }
+            );
+        }
 
         // 6. If PAID_AT_BOOKING, auto-create INFLOW Payment transaction
         if (bookingData.collectionType === "PAID_AT_BOOKING") {

@@ -8,7 +8,11 @@ import memoRoutes from "./modules/memo/memo.routes.js";
 import branchRoute from "./modules/Branch/branch.routes.js";
 import expenseRoutes from "./modules/Expenses/expense.routes.js";
 import paymentRoutes from "./modules/Payment/payment.routes.js";
-import deliveryBoyRoutes from "./modules/DeliveryBoy/DeliveryBoy.routes.js";
+import deliveryBoyRoutes from "./modules/DeliveryBoy/deliveryBoy.routes.js";
+import deliveryBookingRoutes from "./modules/Deliverymanage/deliveryBooking.routes.js";
+import customerLedgerRoutes from "./modules/customerLedger/customerLedger.routes.js";
+import deliveryBoyLedgerRoutes from "./modules/deliveryboyLedger/deliveryBoyLedger.routes.js";
+import paymentTransactionRoute from "./modules/paymentTransactions/paymentTransaction.route.js"
 import { swaggerUi, swaggerSpec } from "./docs/swagger.js";
 
 const app = express();
@@ -52,6 +56,21 @@ app.use("/api/payments", paymentRoutes);
 
 //── Routes for delivery branch------------------------------------------------
 app.use("/api/delivery-boys", deliveryBoyRoutes);
+app.use(
+  "/api/delivery/bookings",
+  deliveryBookingRoutes
+);
+
+app.use("/api/customer-ledger", customerLedgerRoutes);
+app.use(
+  "/api/delivery-boy-ledger",
+  deliveryBoyLedgerRoutes
+);
+app.use(
+  "/api/payment-transactions",
+  paymentTransactionRoute
+);
+
 
 // Swagger
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));

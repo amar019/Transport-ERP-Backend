@@ -23,7 +23,7 @@ export const createDeliveryBoyController = async (req, res) => {
         }
 
         // Get branch from logged-in user
-        const branchId = req.user.branch;
+        const branchId = req.user.branch?._id || req.user.branch;
 
         const deliveryBoy = await createDeliveryBoyService({
             name,
@@ -52,10 +52,10 @@ export const createDeliveryBoyController = async (req, res) => {
  */
 export const getAllDeliveryBoysController = async (req, res) => {
     try {
-        const branchId = req.user.branch;
+        const branchId = req.user.branch?._id || req.user.branch;
 
         const deliveryBoys =
-            await getAllDeliveryBoysService(branchId);
+            await getAllDeliveryBoysService(branchId, req.query);
 
         return res.status(200).json({
             success: true,
@@ -83,12 +83,11 @@ export const getDeliveryBoyByIdController = async (req, res) => {
         const deliveryBoy =
             await getDeliveryBoyByIdService(id);
 
+        const userBranchId = (req.user.branch?._id || req.user.branch).toString();
+        const boyBranchId = (deliveryBoy.branch?._id || deliveryBoy.branch).toString();
+
         // Security: make sure delivery boy belongs to user's branch
-        if (
-            deliveryBoy.branch &&
-            deliveryBoy.branch._id.toString() !==
-            req.user.branch.toString()
-        ) {
+        if (boyBranchId !== userBranchId) {
             return res.status(403).json({
                 success: false,
                 message: "You are not authorized to access this delivery boy",
@@ -117,7 +116,7 @@ export const getDeliveryBoyByIdController = async (req, res) => {
 export const updateDeliveryBoyController = async (req, res) => {
     try {
         const { id } = req.params;
-        const branchId = req.user.branch;
+        const branchId = req.user.branch?._id || req.user.branch;
 
         const updatedDeliveryBoy =
             await updateDeliveryBoyService(
@@ -152,12 +151,11 @@ export const deactivateDeliveryBoyController = async (req, res) => {
         const deliveryBoy =
             await getDeliveryBoyByIdService(id);
 
+        const userBranchId = (req.user.branch?._id || req.user.branch).toString();
+        const boyBranchId = (deliveryBoy.branch?._id || deliveryBoy.branch).toString();
+
         // Security check
-        if (
-            deliveryBoy.branch &&
-            deliveryBoy.branch._id.toString() !==
-            req.user.branch.toString()
-        ) {
+        if (boyBranchId !== userBranchId) {
             return res.status(403).json({
                 success: false,
                 message: "You are not authorized to deactivate this delivery boy",
