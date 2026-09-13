@@ -4,7 +4,7 @@ import {
     getDeliveryBookingsController,
     getDeliveryBookingByIdController,
     assignDeliveryBoyController,
-    startDeliveryController,
+    counterDeliveryController,
     markDeliveredController,
     markDeliveryFailedController,
 } from "./deliveryBooking.controller.js";
@@ -35,10 +35,10 @@ router.patch(
     assignDeliveryBoyController
 );
 
-router.patch(
-    "/:id/out-for-delivery",
+router.post(
+    "/:id/counter-delivery",
     authMiddleware,
-    startDeliveryController
+    counterDeliveryController
 );
 
 router.patch(

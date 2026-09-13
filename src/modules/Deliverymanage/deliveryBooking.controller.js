@@ -2,7 +2,7 @@ import {
     getDeliveryBookingsService,
     getDeliveryBookingByIdService,
     assignDeliveryBoyService,
-    startDeliveryService,
+    counterDeliveryService,
     markDeliveredService,
     markDeliveryFailedService,
     updatePaymentService,
@@ -114,7 +114,7 @@ export const assignDeliveryBoyController =
             return res.status(200).json({
                 success: true,
                 message:
-                    "Delivery boy assigned successfully",
+                    "Delivery boy assigned and delivery started",
                 data: booking,
             });
         } catch (error) {
@@ -128,27 +128,33 @@ export const assignDeliveryBoyController =
 
 /*
 |--------------------------------------------------------------------------
-| START DELIVERY
+| COUNTER DELIVERY
 |--------------------------------------------------------------------------
-| PATCH /api/delivery/bookings/:id/out-for-delivery
+| POST /api/delivery/bookings/:id/counter-delivery
 |--------------------------------------------------------------------------
 */
-export const startDeliveryController =
+export const counterDeliveryController =
     async (req, res) => {
         try {
             const { id } = req.params;
+            const { amount, paymentMode, remarks } = req.body;
             const branchId = req.user.branch;
+            const createdBy = req.user._id || req.user.id;
 
             const booking =
-                await startDeliveryService(
-                    id,
-                    branchId
-                );
+                await counterDeliveryService({
+                    bookingId: id,
+                    branchId,
+                    amount,
+                    paymentMode,
+                    remarks,
+                    createdBy,
+                });
 
             return res.status(200).json({
                 success: true,
                 message:
-                    "Booking marked as out for delivery",
+                    "Counter delivery completed successfully",
                 data: booking,
             });
         } catch (error) {

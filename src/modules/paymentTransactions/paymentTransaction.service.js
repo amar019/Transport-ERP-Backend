@@ -249,7 +249,7 @@ export const collectCustomerPaymentService = async ({
         // Only create this when the DELIVERY BOY
         // actually collected the customer's money.
         //
-        // ASSIGNED does NOT create this entry.
+        // BRANCH_OWNER / COUNTER does NOT create this entry.
         // ------------------------------------------------
 
         if (

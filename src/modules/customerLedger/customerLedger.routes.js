@@ -3,6 +3,8 @@ import express from "express";
 import {
     getCustomerLedgerController,
     getCustomerLedgerBalanceController,
+    getCustomerOutstandingBookingsController,
+    collectCustomerOutstandingPaymentController,
 } from "./customerLedger.controller.js";
 
 import authMiddleware from "../../middleware/auth.middleware.js";
@@ -23,4 +25,30 @@ router.get(
     getCustomerLedgerBalanceController
 );
 
-export default router;
+// Get outstanding bookings for a customer
+router.get(
+    "/customer/:customerId/outstanding",
+    authMiddleware,
+    getCustomerOutstandingBookingsController
+);
+
+router.get(
+    "/:customerId/outstanding",
+    authMiddleware,
+    getCustomerOutstandingBookingsController
+);
+
+// Collect payment for customer outstanding bookings
+router.post(
+    "/customer/:customerId/collect-payment",
+    authMiddleware,
+    collectCustomerOutstandingPaymentController
+);
+
+router.post(
+    "/:customerId/collect-payment",
+    authMiddleware,
+    collectCustomerOutstandingPaymentController
+);
+
+export default router;

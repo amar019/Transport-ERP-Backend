@@ -82,6 +82,8 @@ export const getDeliveryBookingByIdService = async (
 |--------------------------------------------------------------------------
 | ASSIGN DELIVERY BOY
 |--------------------------------------------------------------------------
+| Automatically starts delivery (sets status to OUT_FOR_DELIVERY)
+|--------------------------------------------------------------------------
 */
 export const assignDeliveryBoyService = async (
     bookingId,
@@ -112,23 +114,20 @@ export const assignDeliveryBoyService = async (
         );
     }
 
-    // Cannot assign delivered booking
+    // Cannot reassign completed or failed delivery
     if (
-        booking.delivery.status === "DELIVERED"
+        booking.delivery.status === "DELIVERED" ||
+        booking.delivery.status === "FAILED"
     ) {
         throw new Error(
-            "Cannot assign delivery boy to a delivered booking"
+            "Delivery cannot be reassigned after completion or failure"
         );
     }
 
-    // Assign delivery boy
-    booking.delivery.deliveryBoy =
-        deliveryBoy._id;
-
-    booking.delivery.status = "ASSIGNED";
-
-    booking.delivery.assignedAt =
-        new Date();
+    // Assign delivery boy and automatically start delivery
+    booking.delivery.deliveryBoy = deliveryBoy._id;
+    booking.delivery.status = "OUT_FOR_DELIVERY";
+    booking.delivery.assignedAt = new Date();
 
     await booking.save();
 
@@ -141,15 +140,19 @@ export const assignDeliveryBoyService = async (
 
 /*
 |--------------------------------------------------------------------------
-| START DELIVERY
+| COUNTER DELIVERY SERVICE
 |--------------------------------------------------------------------------
-| ASSIGNED → OUT_FOR_DELIVERY
+| Directly completes delivery at counter for PENDING bookings
 |--------------------------------------------------------------------------
 */
-export const startDeliveryService = async (
+export const counterDeliveryService = async ({
     bookingId,
-    branchId
-) => {
+    branchId,
+    amount = 0,
+    paymentMode = "CASH",
+    remarks = "",
+    createdBy,
+}) => {
     const booking = await Booking.findOne({
         _id: bookingId,
         toBranch: branchId,
@@ -160,27 +163,47 @@ export const startDeliveryService = async (
         throw new Error("Booking not found");
     }
 
-    if (!booking.delivery.deliveryBoy) {
-        throw new Error(
-            "Please assign a delivery boy first"
-        );
-    }
-
     if (
-        booking.delivery.status !== "ASSIGNED"
+        booking.delivery.status === "DELIVERED" ||
+        booking.delivery.status === "FAILED"
     ) {
         throw new Error(
-            "Booking must be assigned before starting delivery"
+            "Delivery cannot be completed after completion or failure"
         );
     }
 
-    booking.delivery.status =
-        "OUT_FOR_DELIVERY";
+    const paymentAmount = Number(amount || 0);
 
-    await booking.save();
+    if (paymentAmount > 0) {
+        await collectCustomerPaymentService({
+            bookingId,
+            branchId,
+            amount: paymentAmount,
+            collectedBy: "BRANCH_OWNER",
+            paymentMode,
+            remarks: remarks || "Counter delivery collection",
+            createdBy,
+        });
+    }
+
+    const updatedBooking = await Booking.findOne({
+        _id: bookingId,
+        toBranch: branchId,
+    });
+
+    if (updatedBooking) {
+        updatedBooking.delivery.status = "DELIVERED";
+        updatedBooking.delivery.deliveredAt = new Date();
+        updatedBooking.delivery.deliveryBoy = null;
+        updatedBooking.delivery.deliveredBy = null;
+        if (remarks) {
+            updatedBooking.delivery.remarks = remarks;
+        }
+        await updatedBooking.save();
+    }
 
     return await getDeliveryBookingByIdService(
-        booking._id,
+        bookingId,
         branchId
     );
 };
@@ -216,15 +239,12 @@ export const markDeliveredService = async (
         );
     }
 
-    booking.delivery.status =
-        "DELIVERED";
-
-    booking.delivery.deliveredAt =
-        new Date();
+    booking.delivery.status = "DELIVERED";
+    booking.delivery.deliveredAt = new Date();
+    booking.delivery.deliveredBy = booking.delivery.deliveryBoy || null;
 
     if (remarks) {
-        booking.delivery.remarks =
-            remarks;
+        booking.delivery.remarks = remarks;
     }
 
     await booking.save();

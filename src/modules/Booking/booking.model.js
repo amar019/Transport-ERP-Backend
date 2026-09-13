@@ -172,7 +172,6 @@ const bookingSchema = new mongoose.Schema(
                 type: String,
                 enum: [
                     "PENDING",
-                    "ASSIGNED",
                     "OUT_FOR_DELIVERY",
                     "DELIVERED",
                     "FAILED",
