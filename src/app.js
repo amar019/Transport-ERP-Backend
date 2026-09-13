@@ -13,6 +13,7 @@ import deliveryBookingRoutes from "./modules/Deliverymanage/deliveryBooking.rout
 import customerLedgerRoutes from "./modules/customerLedger/customerLedger.routes.js";
 import deliveryBoyLedgerRoutes from "./modules/deliveryboyLedger/deliveryBoyLedger.routes.js";
 import paymentTransactionRoute from "./modules/paymentTransactions/paymentTransaction.route.js"
+import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
 import { swaggerUi, swaggerSpec } from "./docs/swagger.js";
 
 const app = express();
@@ -70,6 +71,7 @@ app.use(
   "/api/payment-transactions",
   paymentTransactionRoute
 );
+app.use("/api/dashboard", dashboardRoutes);
 
 
 // Swagger
