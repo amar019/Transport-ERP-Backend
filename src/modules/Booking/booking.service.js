@@ -252,6 +252,11 @@ export const createBooking = async (bookingData, branch, user) => {
 export const getAllBookings = async (branch, queryParams = {}) => {
     const filter = {};
 
+    const page = Math.max(Number(queryParams.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(queryParams.limit) || 20, 1), 100);
+
+    const skip = (page - 1) * limit;
+
     // Branch scoping
     if (branch.type === "BOOKING") {
         filter.fromBranch = branch._id;
@@ -284,18 +289,47 @@ export const getAllBookings = async (branch, queryParams = {}) => {
         ];
     }
 
-    const bookings = await Booking.find(filter)
-        .populate(
-            "customer",
-            "customerCode shopName ownerName mobile email address area city district state pincode deliveryAddress"
-        )
-        .populate("fromBranch", "name type status")
-        .populate("toBranch", "name type status")
-        .populate("createdBy", "name username")
-        .populate("memo", "memoNumber status memoDate")
-        .sort({ createdAt: -1 });
+    if (queryParams.startDate || queryParams.endDate) {
+        filter.createdAt = {};
+        if (queryParams.startDate) {
+            filter.createdAt.$gte = new Date(queryParams.startDate);
+        }
+        if (queryParams.endDate) {
+            const end = new Date(queryParams.endDate);
+            end.setHours(23, 59, 59, 999);
+            filter.createdAt.$lte = end;
+        }
+    }
 
-    return bookings;
+    const [bookings, totalBookings] = await Promise.all([
+        Booking.find(filter)
+            .populate(
+                "customer",
+                "customerCode shopName ownerName mobile email address area city district state pincode deliveryAddress"
+            )
+            .populate("fromBranch", "name type status")
+            .populate("toBranch", "name type status")
+            .populate("createdBy", "name username")
+            .populate("memo", "memoNumber status memoDate")
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+
+        Booking.countDocuments(filter),
+    ]);
+    const totalPages = Math.ceil(totalBookings / limit);
+    return {
+        bookings,
+        pagination: {
+            currentPage: page,
+            limit,
+            totalBookings,
+            totalPages,
+            hasNextPage: page < totalPages,
+            hasPreviousPage: page > 1,
+        },
+    };
 };
 
 /**
