@@ -102,10 +102,13 @@ export const createBooking = async (bookingData, branch, user) => {
     try {
         session.startTransaction();
 
-        // 1. Validate Customer exists
-        const customer = await Customer.findById(bookingData.customer).session(session);
-        if (!customer) {
-            throw new ApiError(404, "Customer not found");
+        // 1. Validate Customer exists (if not direct entry)
+        let customer = null;
+        if (bookingData.customer && !bookingData.isDirectEntry) {
+            customer = await Customer.findById(bookingData.customer).session(session);
+            if (!customer) {
+                throw new ApiError(404, "Customer not found");
+            }
         }
 
         // 2. Validate Destination Branch (toBranch) exists and is active
@@ -142,11 +145,41 @@ export const createBooking = async (bookingData, branch, user) => {
             totalAmount
         );
 
-        // 5. Create booking with enforced origin branch and createdBy
+        // 5. Normalize multi-items and fallback itemName/quantity
+        let items = Array.isArray(bookingData.items)
+            ? bookingData.items
+                .filter(i => i && typeof i.description === "string" && i.description.trim() !== "")
+                .map(i => ({
+                    description: i.description.trim(),
+                    quantity: Math.max(1, Number(i.quantity || 1))
+                }))
+            : [];
+
+        if (items.length === 0 && bookingData.itemName && bookingData.itemName.trim()) {
+            items = [{
+                description: bookingData.itemName.trim(),
+                quantity: Math.max(1, Number(bookingData.quantity || 1))
+            }];
+        }
+
+        const itemName = items.length > 0
+            ? items.map(i => i.description).join(", ")
+            : (bookingData.itemName?.trim() || "General Goods");
+
+        const quantity = items.length > 0
+            ? items.reduce((sum, i) => sum + Number(i.quantity || 1), 0)
+            : Math.max(1, Number(bookingData.quantity || 1));
+
+        // 6. Create booking with enforced origin branch and createdBy
         const [booking] = await Booking.create(
             [
                 {
                     ...bookingData,
+                    customer: customer ? customer._id : null,
+                    isDirectEntry: Boolean(bookingData.isDirectEntry || !customer),
+                    items,
+                    itemName,
+                    quantity,
                     fromBranch: branch._id,
                     toBranch: toBranch._id,
                     createdBy: user._id || user.id,
@@ -158,9 +191,8 @@ export const createBooking = async (bookingData, branch, user) => {
             { session }
         );
 
-
-        // 6. Create Customer Ledger entry for TO_PAY booking
-        if (booking.collectionType === "TO_PAY") {
+        // 7. Create Customer Ledger entry for TO_PAY booking if customer exists
+        if (customer && booking.collectionType === "TO_PAY") {
             const previousCustomerLedger =
                 await CustomerLedger.findOne({
                     customer: customer._id,
@@ -179,23 +211,14 @@ export const createBooking = async (bookingData, branch, user) => {
                 [
                     {
                         customer: customer._id,
-
                         booking: booking._id,
-
                         branch: toBranch._id,
-
                         transaction: null,
-
                         type: "BOOKING_DEBIT",
-
                         debit: totalAmount,
-
                         credit: 0,
-
                         balance: newCustomerBalance,
-
                         remarks: `Bilty ${booking.bookingNumber} - Amount due`,
-
                         createdBy: user._id || user.id,
                     },
                 ],
@@ -203,7 +226,7 @@ export const createBooking = async (bookingData, branch, user) => {
             );
         }
 
-        // 6. If PAID_AT_BOOKING, auto-create INFLOW Payment transaction
+        // 8. If PAID_AT_BOOKING, auto-create INFLOW Payment transaction
         if (bookingData.collectionType === "PAID_AT_BOOKING") {
             const transactionNumber = await generateTransactionNumber(session);
             await Payment.create(
@@ -216,7 +239,7 @@ export const createBooking = async (bookingData, branch, user) => {
                         amount: totalAmount,
                         paymentMode: bookingData.paymentMode || "CASH",
                         branch: branch._id,
-                        customer: customer._id,
+                        customer: customer ? customer._id : null,
                         booking: booking._id,
                         createdBy: user._id || user.id,
                         remarks: `Upfront payment for Bilty ${bookingNumber}`,
@@ -284,8 +307,12 @@ export const getAllBookings = async (branch, queryParams = {}) => {
     if (queryParams.search) {
         filter.$or = [
             { bookingNumber: { $regex: queryParams.search, $options: "i" } },
+            { invoiceNo: { $regex: queryParams.search, $options: "i" } },
             { "sender.name": { $regex: queryParams.search, $options: "i" } },
+            { "receiver.shopName": { $regex: queryParams.search, $options: "i" } },
+            { "receiver.mobile": { $regex: queryParams.search, $options: "i" } },
             { itemName: { $regex: queryParams.search, $options: "i" } },
+            { remark: { $regex: queryParams.search, $options: "i" } },
         ];
     }
 
@@ -441,12 +468,29 @@ export const updateBooking = async (bookingId, bookingData, branch) => {
         biltyCharge +
         otherCharges;
 
-    const collectionType = bookingData.collectionType || booking.collectionType;
+    if (bookingData.items !== undefined || bookingData.itemName !== undefined) {
+        let items = Array.isArray(bookingData.items)
+            ? bookingData.items
+                .filter(i => i && typeof i.description === "string" && i.description.trim() !== "")
+                .map(i => ({
+                    description: i.description.trim(),
+                    quantity: Math.max(1, Number(i.quantity || 1))
+                }))
+            : [];
 
-    const payment = calculatePaymentDetails(
-        collectionType,
-        totalAmount
-    );
+        if (items.length === 0 && bookingData.itemName && bookingData.itemName.trim()) {
+            items = [{
+                description: bookingData.itemName.trim(),
+                quantity: Math.max(1, Number(bookingData.quantity || 1))
+            }];
+        }
+
+        if (items.length > 0) {
+            bookingData.items = items;
+            bookingData.itemName = items.map(i => i.description).join(", ");
+            bookingData.quantity = items.reduce((sum, i) => sum + Number(i.quantity || 1), 0);
+        }
+    }
 
     booking.set({
         ...bookingData,

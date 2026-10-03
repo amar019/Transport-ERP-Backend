@@ -26,7 +26,21 @@ const bookingSchema = new mongoose.Schema(
         customer: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Customer",
-            required: true,
+            required: false,
+            default: null,
+        },
+
+        // Direct Entry Flag (Walk-in customer without registered ID)
+        isDirectEntry: {
+            type: Boolean,
+            default: false,
+        },
+
+        // Direct Receiver Details
+        receiver: {
+            shopName: { type: String, trim: true },
+            ownerName: { type: String, trim: true },
+            mobile: { type: String, trim: true },
         },
 
         // Branch Information
@@ -70,6 +84,14 @@ const bookingSchema = new mongoose.Schema(
             default: 1,
             min: 1,
         },
+
+        // Multi-Item Goods List
+        items: [
+            {
+                description: { type: String, trim: true },
+                quantity: { type: Number, default: 1, min: 1 },
+            },
+        ],
 
         parcelCharge: {
             type: Number,
@@ -197,6 +219,20 @@ const bookingSchema = new mongoose.Schema(
         },
 
 
+
+        // Invoice Number
+        invoiceNo: {
+            type: String,
+            trim: true,
+            default: "",
+        },
+
+        // Remark
+        remark: {
+            type: String,
+            trim: true,
+            default: "",
+        },
 
         // Notes
         notes: {
