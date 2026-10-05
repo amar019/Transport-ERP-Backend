@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import DeliveryBoyLedger from "./deliveryBoyLedger.model.js";
+import DeliveryBoyLedger from "./deliveryboyLedger.model.js";
 import DeliveryBoy from "../DeliveryBoy/deliveryBoy.model.js";
 import PaymentTransaction from "../paymentTransactions/models/paymentTransaction.model.js";
 

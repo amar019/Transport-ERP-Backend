@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import PaymentTransaction from "./models/paymentTransaction.model.js";
 import Booking from "../Booking/booking.model.js";
-import DeliveryBoy from "../deliveryBoy/deliveryBoy.model.js";
+import DeliveryBoy from "../DeliveryBoy/deliveryBoy.model.js";
 import CustomerLedger from "../customerLedger/customerLedger.model.js";
 import DeliveryBoyLedger from "../deliveryboyLedger/deliveryboyLedger.model.js";
 
