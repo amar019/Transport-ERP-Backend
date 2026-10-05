@@ -3,6 +3,12 @@ import ApiResponse from "../../utils/ApiResponse.js";
 import userService from "./user.service.js";
 
 
+const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+};
+
 /**
  * Login
  */
@@ -22,13 +28,44 @@ export const loginController = asyncHandler(
             );
 
 
-        return res.status(200).json(
-            new ApiResponse(
-                200,
-                result,
-                "Login successful"
-            )
-        );
+        return res
+            .status(200)
+            .cookie("accessToken", result.accessToken, cookieOptions)
+            .cookie("refreshToken", result.refreshToken, cookieOptions)
+            .json(
+                new ApiResponse(
+                    200,
+                    result,
+                    "Login successful"
+                )
+            );
+    }
+);
+
+
+/**
+ * Refresh Access Token
+ */
+export const refreshTokenController = asyncHandler(
+    async (req, res) => {
+        const incomingRefreshToken =
+            req.cookies?.refreshToken ||
+            req.body?.refreshToken ||
+            req.headers["x-refresh-token"];
+
+        const result = await userService.refreshAccessToken(incomingRefreshToken);
+
+        return res
+            .status(200)
+            .cookie("accessToken", result.accessToken, cookieOptions)
+            .cookie("refreshToken", result.refreshToken, cookieOptions)
+            .json(
+                new ApiResponse(
+                    200,
+                    result,
+                    "Access token refreshed successfully"
+                )
+            );
     }
 );
 
@@ -95,15 +132,19 @@ export const changePasswordController =
 export const logout = asyncHandler(
     async (req, res) => {
 
-        await userService.logoutUser();
+        await userService.logoutUser(req.user?._id || req.user?.id);
 
-        return res.status(200).json(
-            new ApiResponse(
-                200,
-                null,
-                "Logout successful"
-            )
-        );
+        return res
+            .status(200)
+            .clearCookie("accessToken", cookieOptions)
+            .clearCookie("refreshToken", cookieOptions)
+            .json(
+                new ApiResponse(
+                    200,
+                    null,
+                    "Logout successful"
+                )
+            );
     }
 );
 

@@ -5,17 +5,21 @@ import User from "../modules/User/user.model.js";
 
 const authMiddleware = asyncHandler(async (req, res, next) => {
     const authHeader = req.headers.authorization;
+    let token = null;
 
-    // Check Authorization header
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+        token = authHeader.split(" ")[1];
+    } else if (req.cookies?.accessToken) {
+        token = req.cookies.accessToken;
+    }
+
+    if (!token) {
         throw new ApiError(401, "Authentication required");
     }
 
-    // Extract token
-    const token = authHeader.split(" ")[1];
-
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const secret = process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET;
+        const decoded = jwt.verify(token, secret);
 
         const user = await User.findById(decoded.id)
             .populate({
