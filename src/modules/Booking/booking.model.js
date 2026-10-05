@@ -26,7 +26,21 @@ const bookingSchema = new mongoose.Schema(
         customer: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Customer",
-            required: true,
+            required: false,
+            default: null,
+        },
+
+        // Direct Entry Flag (Walk-in customer without registered ID)
+        isDirectEntry: {
+            type: Boolean,
+            default: false,
+        },
+
+        // Direct Receiver Details
+        receiver: {
+            shopName: { type: String, trim: true },
+            ownerName: { type: String, trim: true },
+            mobile: { type: String, trim: true },
         },
 
         // Branch Information
@@ -70,6 +84,14 @@ const bookingSchema = new mongoose.Schema(
             default: 1,
             min: 1,
         },
+
+        // Multi-Item Goods List
+        items: [
+            {
+                description: { type: String, trim: true },
+                quantity: { type: Number, default: 1, min: 1 },
+            },
+        ],
 
         parcelCharge: {
             type: Number,
@@ -161,6 +183,56 @@ const bookingSchema = new mongoose.Schema(
         },
 
 
+        delivery: {
+            deliveryBoy: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "DeliveryBoy",
+                default: null,
+            },
+
+            status: {
+                type: String,
+                enum: [
+                    "PENDING",
+                    "OUT_FOR_DELIVERY",
+                    "DELIVERED",
+                    "FAILED",
+                ],
+                default: "PENDING",
+            },
+
+            assignedAt: {
+                type: Date,
+                default: null,
+            },
+
+            deliveredAt: {
+                type: Date,
+                default: null,
+            },
+
+            remarks: {
+                type: String,
+                trim: true,
+                default: "",
+            },
+        },
+
+
+
+        // Invoice Number
+        invoiceNo: {
+            type: String,
+            trim: true,
+            default: "",
+        },
+
+        // Remark
+        remark: {
+            type: String,
+            trim: true,
+            default: "",
+        },
 
         // Notes
         notes: {
@@ -184,6 +256,8 @@ bookingSchema.index({ fromBranch: 1, createdAt: -1 });
 bookingSchema.index({ toBranch: 1, createdAt: -1 });
 bookingSchema.index({ status: 1 });
 bookingSchema.index({ memo: 1 });
+bookingSchema.index({ toBranch: 1, "delivery.status": 1 });
+bookingSchema.index({ "delivery.deliveryBoy": 1, "delivery.status": 1 });
 
 const Booking = mongoose.model("Booking", bookingSchema);
 

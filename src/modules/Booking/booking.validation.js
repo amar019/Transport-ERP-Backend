@@ -26,11 +26,27 @@ export const createBookingValidation = [
 
     // Customer / Receiver
     body("customer")
+        .optional({ checkFalsy: true })
         .trim()
-        .notEmpty()
-        .withMessage("Customer is required")
         .isMongoId()
         .withMessage("Invalid customer ID"),
+
+    body("isDirectEntry")
+        .optional()
+        .isBoolean()
+        .withMessage("isDirectEntry must be a boolean"),
+
+    body("receiver.shopName")
+        .optional()
+        .trim(),
+
+    body("receiver.ownerName")
+        .optional()
+        .trim(),
+
+    body("receiver.mobile")
+        .optional()
+        .trim(),
 
     // Destination Branch
     body("toBranch")
@@ -55,14 +71,26 @@ export const createBookingValidation = [
 
     // Goods Information
     body("itemName")
-        .trim()
-        .notEmpty()
-        .withMessage("Item name is required"),
+        .optional()
+        .trim(),
 
     body("quantity")
         .optional()
         .isInt({ min: 1 })
         .withMessage("Quantity must be at least 1"),
+
+    body("items")
+        .optional()
+        .isArray()
+        .withMessage("Items must be an array"),
+
+    body("items.*.description")
+        .optional()
+        .trim(),
+
+    body("items.*.quantity")
+        .optional()
+        .isInt({ min: 1 }),
 
     // Charges
     body("parcelCharge")
@@ -120,6 +148,21 @@ export const createBookingValidation = [
         .optional()
         .isFloat({ min: 0 })
         .withMessage("Paid amount must be a valid number"),
+
+    // Payment Mode
+    body("paymentMode")
+        .optional()
+        .isIn(["CASH", "UPI", "BANK_TRANSFER", "CHEQUE"])
+        .withMessage("Invalid payment mode"),
+
+    // Invoice Number & Remark
+    body("invoiceNo")
+        .optional()
+        .trim(),
+
+    body("remark")
+        .optional()
+        .trim(),
 
     // Notes
     body("notes")

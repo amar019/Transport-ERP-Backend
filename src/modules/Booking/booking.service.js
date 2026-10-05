@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Booking from "./booking.model.js";
 import ApiError from "../../utils/ApiErrors.js";
 import PDFDocument from "pdfkit";
@@ -5,6 +6,9 @@ import { drawBilty } from "./booking.pdf.js";
 import Customer from "../customer/cutomer.model.js";
 import Branch from "../Branch/branch.model.js";
 import { calculatePaymentDetails } from "../../utils/payment.helper.js";
+import Payment from "../Payment/payment.model.js";
+import { generateTransactionNumber } from "../Payment/payment.helper.js";
+import CustomerLedger from "../customerLedger/customerLedger.model.js";
 
 /**
  * Generate PDF Service
@@ -61,10 +65,16 @@ export const generateBookingPdfService = async (bookingId, branch) => {
  * Generate next booking number
  * Example: BK-0001, BK-0002
  */
-const generateBookingNumber = async () => {
-    const lastBooking = await Booking.findOne()
+const generateBookingNumber = async (session = null) => {
+    const query = Booking.findOne()
         .sort({ createdAt: -1 })
         .select("bookingNumber");
+
+    if (session) {
+        query.session(session);
+    }
+
+    const lastBooking = await query;
 
     if (!lastBooking || !lastBooking.bookingNumber) {
         return "BK-0001";
@@ -84,64 +94,177 @@ const generateBookingNumber = async () => {
  * Create Booking
  * - Origin branch (fromBranch) is strictly set from authenticated user's branch
  * - Creator (createdBy) is strictly set from authenticated user
+ * - Auto-creates INFLOW Payment if collectionType is PAID_AT_BOOKING
  */
 export const createBooking = async (bookingData, branch, user) => {
-    // 1. Validate Customer exists
-    const customer = await Customer.findById(bookingData.customer);
-    if (!customer) {
-        throw new ApiError(404, "Customer not found");
+    const session = await mongoose.startSession();
+
+    try {
+        session.startTransaction();
+
+        // 1. Validate Customer exists (if not direct entry)
+        let customer = null;
+        if (bookingData.customer && !bookingData.isDirectEntry) {
+            customer = await Customer.findById(bookingData.customer).session(session);
+            if (!customer) {
+                throw new ApiError(404, "Customer not found");
+            }
+        }
+
+        // 2. Validate Destination Branch (toBranch) exists and is active
+        const toBranch = await Branch.findById(bookingData.toBranch).session(session);
+        if (!toBranch) {
+            throw new ApiError(404, "Destination branch not found");
+        }
+
+        if (toBranch.status !== "ACTIVE") {
+            throw new ApiError(400, "Destination branch is inactive");
+        }
+
+        // 3. Generate booking number
+        const bookingNumber = await generateBookingNumber(session);
+
+        // 4. Calculate charges
+        const parcelCharge = Number(bookingData.parcelCharge || 0);
+        const crossing = Number(bookingData.crossing || 0);
+        const freight = Number(bookingData.freight || 0);
+        const hamali = Number(bookingData.hamali || 0);
+        const biltyCharge = Number(bookingData.biltyCharge || 0);
+        const otherCharges = Number(bookingData.otherCharges || 0);
+
+        const totalAmount =
+            parcelCharge +
+            crossing +
+            freight +
+            hamali +
+            biltyCharge +
+            otherCharges;
+
+        const payment = calculatePaymentDetails(
+            bookingData.collectionType,
+            totalAmount
+        );
+
+        // 5. Normalize multi-items and fallback itemName/quantity
+        let items = Array.isArray(bookingData.items)
+            ? bookingData.items
+                .filter(i => i && typeof i.description === "string" && i.description.trim() !== "")
+                .map(i => ({
+                    description: i.description.trim(),
+                    quantity: Math.max(1, Number(i.quantity || 1))
+                }))
+            : [];
+
+        if (items.length === 0 && bookingData.itemName && bookingData.itemName.trim()) {
+            items = [{
+                description: bookingData.itemName.trim(),
+                quantity: Math.max(1, Number(bookingData.quantity || 1))
+            }];
+        }
+
+        const itemName = items.length > 0
+            ? items.map(i => i.description).join(", ")
+            : (bookingData.itemName?.trim() || "General Goods");
+
+        const quantity = items.length > 0
+            ? items.reduce((sum, i) => sum + Number(i.quantity || 1), 0)
+            : Math.max(1, Number(bookingData.quantity || 1));
+
+        // 6. Create booking with enforced origin branch and createdBy
+        const [booking] = await Booking.create(
+            [
+                {
+                    ...bookingData,
+                    customer: customer ? customer._id : null,
+                    isDirectEntry: Boolean(bookingData.isDirectEntry || !customer),
+                    items,
+                    itemName,
+                    quantity,
+                    fromBranch: branch._id,
+                    toBranch: toBranch._id,
+                    createdBy: user._id || user.id,
+                    bookingNumber,
+                    totalAmount,
+                    ...payment,
+                },
+            ],
+            { session }
+        );
+
+        // 7. Create Customer Ledger entry for TO_PAY booking if customer exists
+        if (customer && booking.collectionType === "TO_PAY") {
+            const previousCustomerLedger =
+                await CustomerLedger.findOne({
+                    customer: customer._id,
+                    branch: toBranch._id,
+                })
+                    .sort({ createdAt: -1 })
+                    .session(session);
+
+            const previousCustomerBalance =
+                Number(previousCustomerLedger?.balance || 0);
+
+            const newCustomerBalance =
+                previousCustomerBalance + totalAmount;
+
+            await CustomerLedger.create(
+                [
+                    {
+                        customer: customer._id,
+                        booking: booking._id,
+                        branch: toBranch._id,
+                        transaction: null,
+                        type: "BOOKING_DEBIT",
+                        debit: totalAmount,
+                        credit: 0,
+                        balance: newCustomerBalance,
+                        remarks: `Bilty ${booking.bookingNumber} - Amount due`,
+                        createdBy: user._id || user.id,
+                    },
+                ],
+                { session }
+            );
+        }
+
+        // 8. If PAID_AT_BOOKING, auto-create INFLOW Payment transaction
+        if (bookingData.collectionType === "PAID_AT_BOOKING") {
+            const transactionNumber = await generateTransactionNumber(session);
+            await Payment.create(
+                [
+                    {
+                        transactionNumber,
+                        transactionDate: booking.bookingDate || Date.now(),
+                        type: "INFLOW",
+                        category: "BOOKING_PAYMENT",
+                        amount: totalAmount,
+                        paymentMode: bookingData.paymentMode || "CASH",
+                        branch: branch._id,
+                        customer: customer ? customer._id : null,
+                        booking: booking._id,
+                        createdBy: user._id || user.id,
+                        remarks: `Upfront payment for Bilty ${bookingNumber}`,
+                        status: "ACTIVE",
+                    },
+                ],
+                { session }
+            );
+        }
+
+        await session.commitTransaction();
+
+        return await Booking.findById(booking._id)
+            .populate("customer", "customerCode shopName ownerName mobile email address area city district state pincode deliveryAddress")
+            .populate("fromBranch", "name type status")
+            .populate("toBranch", "name type status")
+            .populate("createdBy", "name username");
+    } catch (error) {
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
+        throw error;
+    } finally {
+        await session.endSession();
     }
-
-    // 2. Validate Destination Branch (toBranch) exists and is active
-    const toBranch = await Branch.findById(bookingData.toBranch);
-    if (!toBranch) {
-        throw new ApiError(404, "Destination branch not found");
-    }
-
-    if (toBranch.status !== "ACTIVE") {
-        throw new ApiError(400, "Destination branch is inactive");
-    }
-
-    // 3. Generate booking number
-    const bookingNumber = await generateBookingNumber();
-
-    // 4. Calculate charges
-    const parcelCharge = Number(bookingData.parcelCharge || 0);
-    const crossing = Number(bookingData.crossing || 0);
-    const freight = Number(bookingData.freight || 0);
-    const hamali = Number(bookingData.hamali || 0);
-    const biltyCharge = Number(bookingData.biltyCharge || 0);
-    const otherCharges = Number(bookingData.otherCharges || 0);
-
-    const totalAmount =
-        parcelCharge +
-        crossing +
-        freight +
-        hamali +
-        biltyCharge +
-        otherCharges;
-
-    const payment = calculatePaymentDetails(
-        bookingData.collectionType,
-        totalAmount
-    );
-
-    // 5. Create booking with enforced origin branch and createdBy
-    const booking = await Booking.create({
-        ...bookingData,
-        fromBranch: branch._id,
-        toBranch: toBranch._id,
-        createdBy: user._id || user.id,
-        bookingNumber,
-        totalAmount,
-        ...payment,
-    });
-
-    return await Booking.findById(booking._id)
-        .populate("customer", "customerCode shopName ownerName mobile email address area city district state pincode deliveryAddress")
-        .populate("fromBranch", "name type status")
-        .populate("toBranch", "name type status")
-        .populate("createdBy", "name username");
 };
 
 /**
@@ -151,6 +274,11 @@ export const createBooking = async (bookingData, branch, user) => {
  */
 export const getAllBookings = async (branch, queryParams = {}) => {
     const filter = {};
+
+    const page = Math.max(Number(queryParams.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(queryParams.limit) || 20, 1), 100);
+
+    const skip = (page - 1) * limit;
 
     // Branch scoping
     if (branch.type === "BOOKING") {
@@ -179,23 +307,56 @@ export const getAllBookings = async (branch, queryParams = {}) => {
     if (queryParams.search) {
         filter.$or = [
             { bookingNumber: { $regex: queryParams.search, $options: "i" } },
+            { invoiceNo: { $regex: queryParams.search, $options: "i" } },
             { "sender.name": { $regex: queryParams.search, $options: "i" } },
+            { "receiver.shopName": { $regex: queryParams.search, $options: "i" } },
+            { "receiver.mobile": { $regex: queryParams.search, $options: "i" } },
             { itemName: { $regex: queryParams.search, $options: "i" } },
+            { remark: { $regex: queryParams.search, $options: "i" } },
         ];
     }
 
-    const bookings = await Booking.find(filter)
-        .populate(
-            "customer",
-            "customerCode shopName ownerName mobile email address area city district state pincode deliveryAddress"
-        )
-        .populate("fromBranch", "name type status")
-        .populate("toBranch", "name type status")
-        .populate("createdBy", "name username")
-        .populate("memo", "memoNumber status memoDate")
-        .sort({ createdAt: -1 });
+    if (queryParams.startDate || queryParams.endDate) {
+        filter.createdAt = {};
+        if (queryParams.startDate) {
+            filter.createdAt.$gte = new Date(queryParams.startDate);
+        }
+        if (queryParams.endDate) {
+            const end = new Date(queryParams.endDate);
+            end.setHours(23, 59, 59, 999);
+            filter.createdAt.$lte = end;
+        }
+    }
 
-    return bookings;
+    const [bookings, totalBookings] = await Promise.all([
+        Booking.find(filter)
+            .populate(
+                "customer",
+                "customerCode shopName ownerName mobile email address area city district state pincode deliveryAddress"
+            )
+            .populate("fromBranch", "name type status")
+            .populate("toBranch", "name type status")
+            .populate("createdBy", "name username")
+            .populate("memo", "memoNumber status memoDate")
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+
+        Booking.countDocuments(filter),
+    ]);
+    const totalPages = Math.ceil(totalBookings / limit);
+    return {
+        bookings,
+        pagination: {
+            currentPage: page,
+            limit,
+            totalBookings,
+            totalPages,
+            hasNextPage: page < totalPages,
+            hasPreviousPage: page > 1,
+        },
+    };
 };
 
 /**
@@ -307,12 +468,29 @@ export const updateBooking = async (bookingId, bookingData, branch) => {
         biltyCharge +
         otherCharges;
 
-    const collectionType = bookingData.collectionType || booking.collectionType;
+    if (bookingData.items !== undefined || bookingData.itemName !== undefined) {
+        let items = Array.isArray(bookingData.items)
+            ? bookingData.items
+                .filter(i => i && typeof i.description === "string" && i.description.trim() !== "")
+                .map(i => ({
+                    description: i.description.trim(),
+                    quantity: Math.max(1, Number(i.quantity || 1))
+                }))
+            : [];
 
-    const payment = calculatePaymentDetails(
-        collectionType,
-        totalAmount
-    );
+        if (items.length === 0 && bookingData.itemName && bookingData.itemName.trim()) {
+            items = [{
+                description: bookingData.itemName.trim(),
+                quantity: Math.max(1, Number(bookingData.quantity || 1))
+            }];
+        }
+
+        if (items.length > 0) {
+            bookingData.items = items;
+            bookingData.itemName = items.map(i => i.description).join(", ");
+            bookingData.quantity = items.reduce((sum, i) => sum + Number(i.quantity || 1), 0);
+        }
+    }
 
     booking.set({
         ...bookingData,
@@ -335,35 +513,62 @@ export const updateBooking = async (bookingId, bookingData, branch) => {
  * - Cannot cancel if already assigned to a memo or already cancelled
  */
 export const cancelBooking = async (bookingId, branch) => {
-    const booking = await Booking.findById(bookingId);
+    const session = await mongoose.startSession();
 
-    if (!booking) {
-        throw new ApiError(404, "Booking not found");
-    }
+    try {
+        session.startTransaction();
 
-    // 1. Branch ownership check
-    const fromBranchId = booking.fromBranch?.toString();
-    if (fromBranchId !== branch._id.toString()) {
-        throw new ApiError(403, "You are not allowed to cancel this booking");
-    }
+        const booking = await Booking.findById(bookingId).session(session);
 
-    // 2. Memo check
-    if (booking.memo) {
-        throw new ApiError(
-            400,
-            "Booking cannot be cancelled because it is already assigned to a memo"
+        if (!booking) {
+            throw new ApiError(404, "Booking not found");
+        }
+
+        // 1. Branch ownership check
+        const fromBranchId = booking.fromBranch?.toString();
+        if (fromBranchId !== branch._id.toString()) {
+            throw new ApiError(403, "You are not allowed to cancel this booking");
+        }
+
+        // 2. Memo check
+        if (booking.memo) {
+            throw new ApiError(
+                400,
+                "Booking cannot be cancelled because it is already assigned to a memo"
+            );
+        }
+
+        // 3. Status check
+        if (booking.status === "CANCELLED") {
+            throw new ApiError(400, "Booking is already cancelled");
+        }
+
+        booking.status = "CANCELLED";
+        await booking.save({ session });
+
+        // Reverse associated Payment transaction if any
+        await Payment.updateMany(
+            { booking: booking._id, status: "ACTIVE" },
+            {
+                $set: {
+                    status: "REVERSED",
+                    reversedAt: new Date(),
+                    reversalReason: "Booking cancelled",
+                },
+            },
+            { session }
         );
+
+        await session.commitTransaction();
+        return booking;
+    } catch (error) {
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
+        throw error;
+    } finally {
+        await session.endSession();
     }
-
-    // 3. Status check
-    if (booking.status === "CANCELLED") {
-        throw new ApiError(400, "Booking is already cancelled");
-    }
-
-    booking.status = "CANCELLED";
-    await booking.save();
-
-    return booking;
 };
 
 /**

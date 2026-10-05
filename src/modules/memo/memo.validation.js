@@ -28,11 +28,17 @@ const createMemoValidation = [
  * Validation for Updating Memo Collection / Settlement
  */
 const updateMemoCollectionValidation = [
-    body("amountReceived")
-        .notEmpty()
-        .withMessage("Received amount is required.")
-        .isFloat({ min: 0.01 })
-        .withMessage("Please enter a valid positive received amount."),
+    body().custom((value, { req }) => {
+        const amt = req.body.amountReceived !== undefined ? req.body.amountReceived : req.body.amount;
+        if (amt === undefined || amt === null || amt === "") {
+            throw new Error("Received amount is required.");
+        }
+        const num = Number(amt);
+        if (isNaN(num) || num <= 0) {
+            throw new Error("Please enter a valid positive received amount.");
+        }
+        return true;
+    }),
 ];
 
 export {

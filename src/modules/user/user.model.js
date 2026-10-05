@@ -39,6 +39,12 @@ const userSchema = new mongoose.Schema(
             type: Date,
             default: null,
         },
+
+        refreshToken: {
+            type: String,
+            default: null,
+            select: false,
+        },
     },
     {
         timestamps: true,
@@ -75,9 +81,7 @@ userSchema.methods.comparePassword =
     };
 
 
-const User = mongoose.model(
-    "User",
-    userSchema
-);
+const User =
+    mongoose.models.User || mongoose.model("User", userSchema);
 
 export default User;

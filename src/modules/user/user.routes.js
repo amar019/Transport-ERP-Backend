@@ -2,10 +2,11 @@ import { Router } from "express";
 
 import {
     loginController,
+    refreshTokenController,
     logout,
     getCurrentUserController,
     changePasswordController,
-
+    updateProfileController,
 } from "./user.controller.js";
 
 import {
@@ -63,7 +64,9 @@ const router = Router();
  *                 data:
  *                   type: object
  *                   properties:
- *                     token:
+ *                     accessToken:
+ *                       type: string
+ *                     refreshToken:
  *                       type: string
  *                     user:
  *                       type: object
@@ -72,6 +75,31 @@ const router = Router();
  */
 // Public Route
 router.post("/login", loginValidation, validate, loginController);
+
+/**
+ * @swagger
+ * /users/refresh-token:
+ *   post:
+ *     summary: Refresh Access Token
+ *     description: Generate a new access token using a valid refresh token.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Token refreshed successfully
+ *       401:
+ *         description: Refresh token is expired or invalid
+ */
+router.post("/refresh-token", refreshTokenController);
 
 
 
@@ -131,6 +159,13 @@ router.patch(
     changePasswordController
 );
 
-
+/**
+ * Update Profile
+ */
+router.patch(
+    "/update-profile",
+    auth,
+    updateProfileController
+);
 
 export default router;
