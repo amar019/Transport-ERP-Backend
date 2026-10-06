@@ -1,5 +1,7 @@
+import mongoose from "mongoose";
 import Booking from "../Booking/booking.model.js";
 import DeliveryBoy from "../DeliveryBoy/deliveryBoy.model.js";
+import { collectCustomerPaymentService } from "../paymentTransactions/paymentTransaction.service.js";
 
 /*
 |--------------------------------------------------------------------------
@@ -213,46 +215,85 @@ export const counterDeliveryService = async ({
 |--------------------------------------------------------------------------
 | MARK DELIVERED
 |--------------------------------------------------------------------------
-| OUT_FOR_DELIVERY → DELIVERED
+| OUT_FOR_DELIVERY → DELIVERED with optional atomic payment collection
 |--------------------------------------------------------------------------
 */
-export const markDeliveredService = async (
+export const markDeliveredService = async ({
     bookingId,
     branchId,
-    remarks = ""
-) => {
-    const booking = await Booking.findOne({
-        _id: bookingId,
-        toBranch: branchId,
-        status: "BOOKED",
-    });
+    remarks = "",
+    paymentCollected = false,
+    paymentMode = "CASH",
+    createdBy,
+}) => {
+    const session = await mongoose.startSession();
 
-    if (!booking) {
-        throw new Error("Booking not found");
+    try {
+        session.startTransaction();
+
+        const booking = await Booking.findOne({
+            _id: bookingId,
+            toBranch: branchId,
+            status: "BOOKED",
+        }).session(session);
+
+        if (!booking) {
+            throw new Error("Booking not found in this branch");
+        }
+
+        if (booking.delivery.status === "DELIVERED") {
+            throw new Error("Booking is already marked as delivered");
+        }
+
+        // Process Payment Collection if delivery boy collected cash on field
+        if (paymentCollected && booking.collectionType === "TO_PAY") {
+            const currentPaid = Number(booking.paidAmount || 0);
+            const total = Number(booking.totalAmount || 0);
+            const remaining = Number(
+                booking.remainingAmount ?? (total - currentPaid)
+            );
+
+            if (remaining > 0) {
+                await collectCustomerPaymentService({
+                    bookingId: booking._id,
+                    branchId,
+                    amount: remaining,
+                    collectedBy: "DELIVERY_BOY",
+                    paymentMode: paymentMode || "CASH",
+                    remarks: remarks?.trim() || "Payment collected during delivery by delivery boy",
+                    createdBy,
+                    session,
+                });
+            }
+        }
+
+        // Fetch refreshed booking within session or update directly
+        const bookingToUpdate = await Booking.findOne({
+            _id: bookingId,
+            toBranch: branchId,
+        }).session(session);
+
+        if (bookingToUpdate) {
+            bookingToUpdate.delivery.status = "DELIVERED";
+            bookingToUpdate.delivery.deliveredAt = new Date();
+            bookingToUpdate.delivery.deliveredBy = bookingToUpdate.delivery.deliveryBoy || null;
+
+            if (remarks && remarks.trim()) {
+                bookingToUpdate.delivery.remarks = remarks.trim();
+            }
+
+            await bookingToUpdate.save({ session });
+        }
+
+        await session.commitTransaction();
+
+        return await getDeliveryBookingByIdService(bookingId, branchId);
+    } catch (error) {
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        await session.endSession();
     }
-
-    if (
-        booking.delivery.status === "DELIVERED"
-    ) {
-        throw new Error(
-            "Booking is already marked as delivered"
-        );
-    }
-
-    booking.delivery.status = "DELIVERED";
-    booking.delivery.deliveredAt = new Date();
-    booking.delivery.deliveredBy = booking.delivery.deliveryBoy || null;
-
-    if (remarks) {
-        booking.delivery.remarks = remarks;
-    }
-
-    await booking.save();
-
-    return await getDeliveryBookingByIdService(
-        booking._id,
-        branchId
-    );
 };
 
 

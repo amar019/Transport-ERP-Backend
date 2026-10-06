@@ -19,11 +19,15 @@ export const collectCustomerPaymentService = async ({
     paymentMode,
     remarks,
     createdBy,
+    session: existingSession,
 }) => {
-    const session = await mongoose.startSession();
+    const isExternalSession = Boolean(existingSession);
+    const session = existingSession || (await mongoose.startSession());
 
     try {
-        session.startTransaction();
+        if (!isExternalSession) {
+            session.startTransaction();
+        }
 
         // ------------------------------------------------
         // 1. Validate amount
@@ -248,8 +252,6 @@ export const collectCustomerPaymentService = async ({
         // ------------------------------------------------
         // Only create this when the DELIVERY BOY
         // actually collected the customer's money.
-        //
-        // BRANCH_OWNER / COUNTER does NOT create this entry.
         // ------------------------------------------------
 
         if (
@@ -310,10 +312,12 @@ export const collectCustomerPaymentService = async ({
         }
 
         // ------------------------------------------------
-        // 11. Commit transaction
+        // 11. Commit transaction if local
         // ------------------------------------------------
 
-        await session.commitTransaction();
+        if (!isExternalSession) {
+            await session.commitTransaction();
+        }
 
         return {
             booking,
@@ -323,10 +327,14 @@ export const collectCustomerPaymentService = async ({
             paymentStatus: newPaymentStatus,
         };
     } catch (error) {
-        await session.abortTransaction();
+        if (!isExternalSession) {
+            await session.abortTransaction();
+        }
         throw error;
     } finally {
-        await session.endSession();
+        if (!isExternalSession) {
+            await session.endSession();
+        }
     }
 };
 

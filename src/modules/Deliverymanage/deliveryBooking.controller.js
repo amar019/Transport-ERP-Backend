@@ -182,20 +182,24 @@ export const markDeliveredController =
     async (req, res) => {
         try {
             const { id } = req.params;
-            const { remarks } = req.body;
+            const { remarks, paymentCollected, paymentMode } = req.body;
             const branchId = req.user.branch;
+            const createdBy = req.user._id || req.user.id;
 
             const booking =
-                await markDeliveredService(
-                    id,
+                await markDeliveredService({
+                    bookingId: id,
                     branchId,
-                    remarks
-                );
+                    remarks,
+                    paymentCollected,
+                    paymentMode,
+                    createdBy,
+                });
 
             return res.status(200).json({
                 success: true,
                 message:
-                    "Booking marked as delivered",
+                    "Booking marked as delivered successfully",
                 data: booking,
             });
         } catch (error) {
