@@ -468,6 +468,9 @@ export const updateBooking = async (bookingId, bookingData, branch) => {
         biltyCharge +
         otherCharges;
 
+    const collectionType = bookingData.collectionType || booking.collectionType;
+    const payment = calculatePaymentDetails(collectionType, totalAmount);
+
     if (bookingData.items !== undefined || bookingData.itemName !== undefined) {
         let items = Array.isArray(bookingData.items)
             ? bookingData.items
