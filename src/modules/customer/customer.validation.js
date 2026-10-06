@@ -8,14 +8,12 @@ export const createCustomerValidation = [
         .withMessage("Shop name is required"),
 
     body("ownerName")
-        .trim()
-        .notEmpty()
-        .withMessage("Owner name is required"),
+        .optional({ values: "falsy" })
+        .trim(),
 
     body("mobile")
+        .optional({ values: "falsy" })
         .trim()
-        .notEmpty()
-        .withMessage("Mobile number is required")
         .isMobilePhone("en-IN")
         .withMessage("Please enter a valid mobile number"),
 
@@ -60,13 +58,11 @@ export const updateCustomerValidation = [
         .withMessage("Shop name cannot be empty"),
 
     body("ownerName")
-        .optional()
-        .trim()
-        .notEmpty()
-        .withMessage("Owner name cannot be empty"),
+        .optional({ values: "falsy" })
+        .trim(),
 
     body("mobile")
-        .optional()
+        .optional({ values: "falsy" })
         .trim()
         .isMobilePhone("en-IN")
         .withMessage("Please enter a valid mobile number"),

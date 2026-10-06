@@ -18,7 +18,6 @@ const customerSchema = new mongoose.Schema(
 
         ownerName: {
             type: String,
-            required: true,
             trim: true,
         },
 
@@ -26,7 +25,6 @@ const customerSchema = new mongoose.Schema(
         // Contact Information
         mobile: {
             type: String,
-            required: true,
             trim: true,
         },
 
