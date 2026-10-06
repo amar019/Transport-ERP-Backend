@@ -21,7 +21,7 @@ const router = express.Router();
  */
 router.post(
     "/",
-
+    verifyJWT,
     createBranchController
 );
 
@@ -31,9 +31,10 @@ router.post(
  */
 router.get(
     "/",
-
+    verifyJWT,
     getAllBranchesController
 );
+
 
 
 /**

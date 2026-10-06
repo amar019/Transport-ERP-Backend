@@ -43,3 +43,30 @@ export const switchBranchValidation = [
         .isIn(["BOOKING", "DELIVERY"])
         .withMessage("Invalid branch"),
 ];
+
+/**
+ * Register User Validation
+ */
+export const registerValidation = [
+    body("name")
+        .trim()
+        .notEmpty()
+        .withMessage("Name is required"),
+
+    body("username")
+        .trim()
+        .notEmpty()
+        .withMessage("Username is required")
+        .isLength({ min: 3 })
+        .withMessage("Username must be at least 3 characters"),
+
+    body("password")
+        .notEmpty()
+        .withMessage("Password is required")
+        .isLength({ min: 6 })
+        .withMessage("Password must be at least 6 characters"),
+
+    body("branch")
+        .notEmpty()
+        .withMessage("Branch is required"),
+];

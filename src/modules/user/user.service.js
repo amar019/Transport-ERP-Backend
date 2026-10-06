@@ -296,6 +296,61 @@ const updateProfile = async (userId, updateData) => {
     return updatedUser;
 };
 
+/**
+ * Register User
+ */
+const registerUser = async (userData) => {
+    const { name, username, password, branch, status } = userData;
+
+    if (!name || !username || !password || !branch) {
+        throw new ApiError(400, "Name, username, password, and branch are required");
+    }
+
+    const existingUser = await User.findOne({
+        username: username.toLowerCase().trim(),
+    });
+
+    if (existingUser) {
+        throw new ApiError(409, "Username already exists");
+    }
+
+    const branchExists = await Branch.findById(branch);
+    if (!branchExists) {
+        throw new ApiError(404, "Selected branch does not exist");
+    }
+
+    const user = await User.create({
+        name: name.trim(),
+        username: username.toLowerCase().trim(),
+        password,
+        branch,
+        status: status || "ACTIVE",
+    });
+
+    const createdUser = await User.findById(user._id).populate({
+        path: "branch",
+        select: "name type status",
+    });
+
+    return createdUser;
+};
+
+/**
+ * Get All Users
+ */
+const getAllUsers = async () => {
+    const users = await User.find()
+        .populate({
+            path: "branch",
+            select: "name type status",
+        })
+        .select("-password")
+        .sort({ createdAt: -1 })
+        .lean();
+
+    return users;
+};
+
 export default {
     loginUser,
     generateAccessAndRefreshTokens,
@@ -304,4 +359,6 @@ export default {
     changePassword,
     logoutUser,
     updateProfile,
+    registerUser,
+    getAllUsers,
 };

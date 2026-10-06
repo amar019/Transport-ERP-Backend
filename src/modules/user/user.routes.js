@@ -7,13 +7,16 @@ import {
     getCurrentUserController,
     changePasswordController,
     updateProfileController,
+    registerUserController,
+    getAllUsersController,
 } from "./user.controller.js";
 
 import {
     loginValidation,
     changePasswordValidation,
-
+    registerValidation,
 } from "./user.validation.js";
+
 
 import validate from "../../middleware/validate.middleware.js";
 import auth from "../../middleware/auth.middleware.js";
@@ -166,6 +169,37 @@ router.patch(
     "/update-profile",
     auth,
     updateProfileController
+);
+
+/**
+ * @swagger
+ * /users/register:
+ *   post:
+ *     summary: Register New User
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *     responses:
+ *       201:
+ *         description: User registered successfully
+ */
+router.post(
+    "/register",
+    auth,
+    registerValidation,
+    validate,
+    registerUserController
+);
+
+
+/**
+ * Get All Users
+ */
+router.get(
+    "/",
+    auth,
+    getAllUsersController
 );
 
 export default router;

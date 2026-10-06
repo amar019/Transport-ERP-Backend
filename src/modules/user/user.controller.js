@@ -168,3 +168,37 @@ export const updateProfileController = asyncHandler(
         );
     }
 );
+
+/**
+ * Register User
+ */
+export const registerUserController = asyncHandler(
+    async (req, res) => {
+        const user = await userService.registerUser(req.body);
+
+        return res.status(201).json(
+            new ApiResponse(
+                201,
+                user,
+                "User registered successfully"
+            )
+        );
+    }
+);
+
+/**
+ * Get All Users
+ */
+export const getAllUsersController = asyncHandler(
+    async (req, res) => {
+        const users = await userService.getAllUsers();
+
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                users,
+                "Users fetched successfully"
+            )
+        );
+    }
+);

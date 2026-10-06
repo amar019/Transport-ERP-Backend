@@ -6,11 +6,11 @@ import ApiError from "../../utils/ApiErrors.js";
  */
 export const createBranchService = async (branchData) => {
 
-    const { name, type } = branchData;
+    const { name, type, status } = branchData;
 
     // Check duplicate branch
     const existingBranch = await Branch.findOne({
-        name,
+        name: name.trim(),
     });
 
     if (existingBranch) {
@@ -21,12 +21,14 @@ export const createBranchService = async (branchData) => {
     }
 
     const branch = await Branch.create({
-        name,
+        name: name.trim(),
         type,
+        status: status || "ACTIVE",
     });
 
     return branch;
 };
+
 
 
 /**
