@@ -113,11 +113,14 @@ const createMemoService = async (memoData, branch, user) => {
             }
         }
 
-        // 3. Calculate collection amount (Only TO_PAY bookings)
+        // 3. Calculate collection amount (PAID_AT_BOOKING or TO_PAY bookings)
         let totalAmount = 0;
         bookingDocs.forEach((booking) => {
-            if (booking.collectionType === "TO_PAY") {
-                totalAmount += Number(booking.remainingAmount || 0);
+            if (
+                booking.collectionType === "PAID_AT_BOOKING" ||
+                booking.collectionType === "TO_PAY"
+            ) {
+                totalAmount += Number(booking.totalAmount || 0);
             }
         });
 
@@ -145,7 +148,6 @@ const createMemoService = async (memoData, branch, user) => {
             { session }
         );
 
-        // 6. Update bookings with memo reference
         await Booking.updateMany(
             { _id: { $in: bookings } },
             { $set: { memo: memo._id } },
@@ -201,28 +203,34 @@ const getAllMemosService = async (branch, queryParams = {}) => {
         .populate("receivedBy", "name username")
         .populate({
             path: "bookings",
-            select: "quantity totalAmount collectionType remainingAmount",
+            select: "quantity totalAmount collectionType remainingAmount paidAmount paymentStatus",
         })
         .sort({ createdAt: -1 })
         .lean();
 
     return memos.map((memo) => {
         const bookings = Array.isArray(memo.bookings) ? memo.bookings : [];
-        const totalPackages = bookings.reduce((sum, b) => sum + Number(b.quantity || 1), 0);
-        const bookingsCount = bookings.length;
+        let totalPackages = 0;
 
-        // Calculate Gross Total (All bilties), To-Pay Total, and Paid Total
         let totalMoney = 0;
         let totalToPay = 0;
         let totalPaid = 0;
+        let validBookingsCount = 0;
 
         bookings.forEach((b) => {
+            if (!b || typeof b !== "object") return;
             const bAmount = Number(b.totalAmount || 0);
-            totalMoney += bAmount;
-            if (b.collectionType === "TO_PAY") {
-                totalToPay += Number(b.remainingAmount !== undefined ? b.remainingAmount : bAmount);
-            } else if (b.collectionType === "PAID_AT_BOOKING") {
+
+            if (b.collectionType === "PAID_AT_BOOKING") {
                 totalPaid += bAmount;
+                totalMoney += bAmount;
+                totalPackages += Number(b.quantity || 1);
+                validBookingsCount += 1;
+            } else if (b.collectionType === "TO_PAY") {
+                totalToPay += bAmount;
+                totalMoney += bAmount;
+                totalPackages += Number(b.quantity || 1);
+                validBookingsCount += 1;
             }
         });
 
@@ -231,6 +239,8 @@ const getAllMemosService = async (branch, queryParams = {}) => {
             totalToPay = Number(memo.totalAmount || 0);
             totalMoney = totalToPay;
         }
+
+        const bookingsCount = validBookingsCount || bookings.length;
 
         return {
             _id: memo._id,
@@ -241,10 +251,10 @@ const getAllMemosService = async (branch, queryParams = {}) => {
             toBranch: memo.toBranch,
             createdBy: memo.createdBy,
             receivedBy: memo.receivedBy,
-            totalMoney, // एकूण (Gross Total)
+            totalMoney, // Gross Total (All valid bilties)
             totalPaid, // Paid at booking
-            totalToPay: totalToPay || memo.totalAmount || 0, // एकूण TO_PAY येणे रक्कम
-            totalAmount: memo.totalAmount || totalToPay,
+            totalToPay, // TO_PAY amount
+            totalAmount: totalMoney || memo.totalAmount || 0,
             receivedAmount: memo.receivedAmount || 0,
             totalCollected: memo.receivedAmount || 0,
             pendingAmount: memo.pendingAmount !== undefined ? memo.pendingAmount : (totalToPay - (memo.receivedAmount || 0)),
@@ -254,7 +264,7 @@ const getAllMemosService = async (branch, queryParams = {}) => {
             receivedAt: memo.receivedAt,
             bookingsCount,
             totalBookings: bookingsCount,
-            totalPackages,
+            totalPackages: totalPackages || bookings.reduce((sum, b) => sum + Number(b.quantity || 1), 0),
             notes: memo.notes,
             createdAt: memo.createdAt,
         };
@@ -273,10 +283,14 @@ const getMemoByIdService = async (memoId, branch) => {
         .populate("receivedBy", "name username")
         .populate({
             path: "bookings",
+            options: { sort: { bookingNumber: 1, createdAt: 1 } },
             select: `
                 bookingNumber
                 bookingDate
                 customer
+                isDirectEntry
+                receiver
+                deliveryAddress
                 sender
                 itemName
                 quantity
@@ -312,7 +326,49 @@ const getMemoByIdService = async (memoId, branch) => {
         throw new ApiError(403, "You do not have access to this memo.");
     }
 
-    return memo;
+    const memoObj = memo.toObject();
+    const bookings = Array.isArray(memoObj.bookings) ? memoObj.bookings : [];
+
+    let totalQuantity = 0;
+    let totalFreight = 0;
+    let totalToPay = 0;
+    let totalPaid = 0;
+    let grandTotal = 0;
+    let validBookingsCount = 0;
+
+    bookings.forEach((b) => {
+        if (!b || typeof b !== "object") return;
+        const qty = Number(b.quantity || 1);
+        const frt = Number(b.freight || 0);
+        const amount = Number(b.totalAmount || 0);
+
+        if (b.collectionType === "PAID_AT_BOOKING") {
+            totalPaid += amount;
+            grandTotal += amount;
+            totalQuantity += qty;
+            totalFreight += frt;
+            validBookingsCount += 1;
+        } else if (b.collectionType === "TO_PAY") {
+            totalToPay += amount;
+            grandTotal += amount;
+            totalQuantity += qty;
+            totalFreight += frt;
+            validBookingsCount += 1;
+        }
+    });
+
+    return {
+        ...memoObj,
+        bookingsCount: validBookingsCount || bookings.length,
+        totalBookings: validBookingsCount || bookings.length,
+        totalPackages: totalQuantity,
+        totalQuantity,
+        totalFreight,
+        totalPaid,
+        totalToPay,
+        grandTotal,
+        totalMoney: grandTotal,
+    };
 };
 
 /**
@@ -438,12 +494,15 @@ const updateMemoService = async (memoId, memoData, branch) => {
             const allBookingDocs = await Booking.find({
                 _id: { $in: newBookings },
             })
-                .select("collectionType remainingAmount")
+                .select("collectionType totalAmount")
                 .session(session);
 
             const totalAmount = allBookingDocs.reduce((total, booking) => {
-                if (booking.collectionType === "TO_PAY") {
-                    total += Number(booking.remainingAmount || 0);
+                if (
+                    booking.collectionType === "PAID_AT_BOOKING" ||
+                    booking.collectionType === "TO_PAY"
+                ) {
+                    total += Number(booking.totalAmount || 0);
                 }
                 return total;
             }, 0);
