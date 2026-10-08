@@ -129,6 +129,7 @@ const createMemoService = async (memoData, branch, user) => {
             [
                 {
                     memoNumber,
+                    memoDate: memoData.memoDate ? new Date(memoData.memoDate) : Date.now(),
                     fromBranch: branch._id,
                     toBranch: toBranch._id,
                     createdBy: user._id || user.id,
@@ -452,6 +453,7 @@ const updateMemoService = async (memoId, memoData, branch) => {
             memo.pendingAmount = Math.max(totalAmount - memo.receivedAmount, 0);
         }
 
+        if (memoData.memoDate) memo.memoDate = new Date(memoData.memoDate);
         if (notes !== undefined) memo.notes = notes;
 
         await memo.save({ session });
