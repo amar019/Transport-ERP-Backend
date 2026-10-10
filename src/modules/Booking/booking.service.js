@@ -62,8 +62,31 @@ export const generateBookingPdfService = async (bookingId, branch) => {
 };
 
 /**
- * Generate next booking number
- * Example: BK-0001, BK-0002
+ * Helper to advance letter series prefix (e.g. BK -> BL -> BM ... BZ -> CA ...)
+ */
+const incrementPrefix = (prefix = "BK") => {
+    const chars = prefix.toUpperCase().split("");
+    let carry = true;
+    for (let i = chars.length - 1; i >= 0 && carry; i--) {
+        const code = chars[i].charCodeAt(0);
+        if (code >= 65 && code < 90) { // A to Y
+            chars[i] = String.fromCharCode(code + 1);
+            carry = false;
+        } else if (code === 90) { // Z
+            chars[i] = "A";
+            carry = true;
+        }
+    }
+    if (carry) {
+        chars.unshift("A");
+    }
+    return chars.join("");
+};
+
+/**
+ * Generate next booking number strictly maintaining a 4-digit sequence:
+ * - BK-0001 to BK-9999
+ * - When 9999 is reached, advances prefix to next series: BL-0001 to BL-9999, BM-0001, etc.
  */
 const generateBookingNumber = async (session = null) => {
     const query = Booking.findOne()
@@ -80,14 +103,27 @@ const generateBookingNumber = async (session = null) => {
         return "BK-0001";
     }
 
-    const lastNumber = parseInt(
-        lastBooking.bookingNumber.replace("BK-", ""),
-        10
-    );
+    const match = String(lastBooking.bookingNumber).trim().match(/^([A-Za-z]+)-(\d+)$/);
 
-    const nextNumber = isNaN(lastNumber) ? 1 : lastNumber + 1;
+    if (!match) {
+        return "BK-0001";
+    }
 
-    return `BK-${String(nextNumber).padStart(4, "0")}`;
+    const prefix = match[1].toUpperCase();
+    const lastNumber = parseInt(match[2], 10);
+
+    if (isNaN(lastNumber)) {
+        return "BK-0001";
+    }
+
+    if (lastNumber < 9999) {
+        const nextNumber = lastNumber + 1;
+        return `${prefix}-${String(nextNumber).padStart(4, "0")}`;
+    }
+
+    // After 9999, advance prefix to next series and reset number to 0001
+    const nextPrefix = incrementPrefix(prefix);
+    return `${nextPrefix}-0001`;
 };
 
 /**
