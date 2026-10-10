@@ -13,14 +13,22 @@ export const getDeliveryBoyLedgerService = async ({
         branch: branchId,
     })
         .populate("deliveryBoy", "name mobile")
-        .populate(
-            "booking",
-            "bookingNumber bookingDate totalAmount"
-        )
-        .populate(
-            "paymentTransaction",
-            "amount type paymentMode transactionDate"
-        )
+        .populate({
+            path: "booking",
+            select: "bookingNumber bookingDate totalAmount customer receiver isDirectEntry deliveryAddress",
+            populate: {
+                path: "customer",
+                select: "shopName ownerName name mobile",
+            },
+        })
+        .populate({
+            path: "paymentTransaction",
+            select: "amount type paymentMode transactionDate customer directReceiver",
+            populate: {
+                path: "customer",
+                select: "shopName ownerName name mobile",
+            },
+        })
         .sort({ createdAt: -1 });
 
     return ledger;
@@ -201,16 +209,20 @@ export const getDeliveryBoyDailyReportService = async ({
                 $lte: endDate,
             },
         })
-            .populate(
-                "booking",
-                "bookingNumber bookingDate totalAmount freight deliveryAddress"
-            )
             .populate({
-                path: "paymentTransaction",
-                select: "amount paymentMode transactionDate customer",
+                path: "booking",
+                select: "bookingNumber bookingDate totalAmount freight deliveryAddress customer receiver isDirectEntry",
                 populate: {
                     path: "customer",
-                    select: "shopName",
+                    select: "shopName ownerName name mobile",
+                },
+            })
+            .populate({
+                path: "paymentTransaction",
+                select: "amount paymentMode transactionDate customer directReceiver",
+                populate: {
+                    path: "customer",
+                    select: "shopName ownerName name mobile",
                 },
             })
             .sort({ createdAt: 1 });
@@ -255,16 +267,20 @@ export const getOutstandingCollectionsService = async ({
         branch: branchId,
         type: "CUSTOMER_COLLECTION",
     })
-        .populate(
-            "booking",
-            "bookingNumber bookingDate totalAmount freight deliveryAddress"
-        )
         .populate({
-            path: "paymentTransaction",
-            select: "amount paymentMode transactionDate customer",
+            path: "booking",
+            select: "bookingNumber bookingDate totalAmount freight deliveryAddress customer receiver isDirectEntry",
             populate: {
                 path: "customer",
-                select: "shopName",
+                select: "shopName ownerName name mobile",
+            },
+        })
+        .populate({
+            path: "paymentTransaction",
+            select: "amount paymentMode transactionDate customer directReceiver",
+            populate: {
+                path: "customer",
+                select: "shopName ownerName name mobile",
             },
         })
         .sort({ createdAt: -1 });

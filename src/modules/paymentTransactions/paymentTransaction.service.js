@@ -159,93 +159,106 @@ export const collectCustomerPaymentService = async ({
         // 8. Create Payment Transaction
         // ------------------------------------------------
 
+        const transactionData = {
+            booking: booking._id,
+            customer: booking.customer || null,
+            branch: branchId,
+
+            deliveryBoy:
+                collectedBy === "DELIVERY_BOY"
+                    ? deliveryBoy._id
+                    : null,
+
+            amount: paymentAmount,
+
+            type: "CUSTOMER_COLLECTION",
+
+            collectedBy,
+
+            paymentMode:
+                paymentMode || "CASH",
+
+            transactionDate: new Date(),
+
+            remarks:
+                remarks?.trim() ||
+                "Payment collected from customer",
+
+            createdBy,
+        };
+
+        if (!booking.customer && booking.receiver) {
+            transactionData.directReceiver = {
+                shopName: booking.receiver.shopName || "",
+                ownerName: booking.receiver.ownerName || "",
+                mobile: booking.receiver.mobile || "",
+            };
+        }
+
         const [paymentTransaction] =
             await PaymentTransaction.create(
-                [
-                    {
-                        booking: booking._id,
-                        customer: booking.customer,
-                        branch: branchId,
-
-                        deliveryBoy:
-                            collectedBy === "DELIVERY_BOY"
-                                ? deliveryBoy._id
-                                : null,
-
-                        amount: paymentAmount,
-
-                        type: "CUSTOMER_COLLECTION",
-
-                        collectedBy,
-
-                        paymentMode:
-                            paymentMode || "CASH",
-
-                        transactionDate: new Date(),
-
-                        remarks:
-                            remarks?.trim() ||
-                            "Payment collected from customer",
-
-                        createdBy,
-                    },
-                ],
+                [transactionData],
                 { session }
             );
 
         // ------------------------------------------------
         // 9. Customer Ledger - PAYMENT CREDIT
         // ------------------------------------------------
+        // Only created when booking is linked to a registered customer.
+        // Direct-entry walk-in customers do not maintain an accounts receivable ledger.
+        // ------------------------------------------------
 
-        const previousCustomerLedger =
-            await CustomerLedger.findOne({
-                customer: booking.customer,
-                branch: branchId,
-            })
-                .sort({ createdAt: -1 })
-                .session(session);
-
-        const previousCustomerBalance =
-            Number(
-                previousCustomerLedger?.balance || 0
-            );
-
-        const newCustomerBalance =
-            Math.max(
-                0,
-                previousCustomerBalance -
-                paymentAmount
-            );
-
-        await CustomerLedger.create(
-            [
-                {
+        if (booking.customer) {
+            const previousCustomerLedger =
+                await CustomerLedger.findOne({
                     customer: booking.customer,
-
-                    booking: booking._id,
-
                     branch: branchId,
+                })
+                    .sort({ createdAt: -1 })
+                    .session(session);
 
-                    transaction:
-                        paymentTransaction._id,
+            const previousCustomerBalance =
+                Number(
+                    previousCustomerLedger?.balance || 0
+                );
 
-                    type: "PAYMENT_CREDIT",
+            const newCustomerBalance =
+                Math.max(
+                    0,
+                    previousCustomerBalance -
+                    paymentAmount
+                );
 
-                    debit: 0,
+            await CustomerLedger.create(
+                [
+                    {
+                        customer: booking.customer,
 
-                    credit: paymentAmount,
+                        booking: booking._id,
 
-                    balance: newCustomerBalance,
+                        branch: branchId,
 
-                    remarks:
-                        remarks?.trim() ||
-                        `Payment received for ${booking.bookingNumber}`,
+                        transaction:
+                            paymentTransaction._id,
 
-                    createdBy,
-                },
-            ],
-            { session }
-        );
+                        type: "PAYMENT_CREDIT",
+
+                        debit: 0,
+
+                        credit: paymentAmount,
+
+                        balance: newCustomerBalance,
+
+                        remarks:
+                            remarks?.trim() ||
+                            `Payment received for ${booking.bookingNumber}`,
+
+                        createdBy,
+                    },
+                ],
+                { session }
+            );
+        }
 
         // ------------------------------------------------
         // 10. Delivery Boy Ledger
@@ -387,11 +400,11 @@ export const getPaymentTransactionsService = async ({
         await PaymentTransaction.find(filter)
             .populate(
                 "booking",
-                "bookingNumber bookingDate totalAmount"
+                "bookingNumber bookingDate totalAmount receiver isDirectEntry deliveryAddress"
             )
             .populate(
                 "customer",
-                "name mobile"
+                "name mobile shopName ownerName"
             )
             .populate(
                 "deliveryBoy",

@@ -16,6 +16,24 @@ const paymentTransactionSchema = new mongoose.Schema(
             index: true,
         },
 
+        directReceiver: {
+            shopName: {
+                type: String,
+                trim: true,
+                default: "",
+            },
+            ownerName: {
+                type: String,
+                trim: true,
+                default: "",
+            },
+            mobile: {
+                type: String,
+                trim: true,
+                default: "",
+            },
+        },
+
         branch: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Branch",

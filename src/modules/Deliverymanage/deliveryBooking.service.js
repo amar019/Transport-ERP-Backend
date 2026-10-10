@@ -63,7 +63,7 @@ export const getDeliveryBookingByIdService = async (
         _id: bookingId,
         toBranch: branchId,
     })
-        .populate("customer", "name mobile address")
+        .populate("customer", "shopName ownerName name mobile address customerCode")
         .populate(
             "delivery.deliveryBoy",
             "name mobile status"
